@@ -74,7 +74,7 @@ const DragDropContext = extern struct {
     drop: ?*anyopaque = null, // TODO: Add way for user to process the data
     leave: ?*anyopaque = null,
 
-    pub fn onEnter(self: *@This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) DropEffect {
+    pub fn onEnter(self: *const @This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) DropEffect {
         if (self.enter) |c| {
             const callback: OnEnter = @ptrCast(@alignCast(c));
             return callback(state, point, key_state) catch .none;
@@ -82,7 +82,7 @@ const DragDropContext = extern struct {
         return .none;
     }
 
-    pub fn onOver(self: *@This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) DropEffect {
+    pub fn onOver(self: *const @This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) DropEffect {
         if (self.over) |c| {
             const callback: OnOver = @ptrCast(@alignCast(c));
             return callback(state, point, key_state) catch .none;
@@ -90,7 +90,7 @@ const DragDropContext = extern struct {
         return .none;
     }
 
-    pub fn onDrop(self: *@This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, data: DropData) DropEffect {
+    pub fn onDrop(self: *const @This(), state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, data: DropData) DropEffect {
         if (self.drop) |c| {
             const callback: OnDrop = @ptrCast(@alignCast(c));
             return callback(state, point, key_state, data) catch .none;
@@ -98,7 +98,7 @@ const DragDropContext = extern struct {
         return .none;
     }
 
-    pub fn onLeave(self: *@This(), state: ?*anyopaque) void {
+    pub fn onLeave(self: *const @This(), state: ?*anyopaque) void {
         if (self.leave) |c| {
             const callback: OnLeave = @ptrCast(@alignCast(c));
             callback(state) catch {};
@@ -122,111 +122,124 @@ fn getDataHGLOBAL(dobj: *IDataObject, cf: u16) ?STGMEDIUM {
     return stg; // caller must ReleaseStgMedium
 }
 
-fn hglobalToBytesOwned(allocator: std.mem.Allocator, stg: *STGMEDIUM) ?[]u8 {
+fn hglobalToBytes(writer: *std.io.Writer, stg: *STGMEDIUM) void {
+    const h = stg.Anonymous.hGlobal;
+    const n = GlobalSize(h);
+    if (n == 0) return;
+    const p = GlobalLock(h) orelse return;
+    defer _ = GlobalUnlock(h);
+
+    _ = writer.writeAll(@as([*]const u8, @ptrCast(p))[0..n]) catch {};
+}
+
+fn hglobalToBytesOwned(allocator: std.mem.Allocator, stg: *STGMEDIUM) ?[]const u8 {
     const h = stg.Anonymous.hGlobal;
     const n = GlobalSize(h);
     if (n == 0) return null;
     const p = GlobalLock(h) orelse return null;
     defer _ = GlobalUnlock(h);
-    const out = if(allocator.alloc(u8, n))|o| o else |_| return null;
+
+    const out = allocator.alloc(u8, n) catch return null;
     @memcpy(out, @as([*]const u8, @ptrCast(p))[0..n]);
-    return out; // ownership: caller frees
+    return out;
 }
 
-fn hglobalUtf16ToUtf8Owned(allocator: std.mem.Allocator, stg: *STGMEDIUM) ?[]const u8 {
+fn hglobalUtf16ToUtf8(writer: *std.io.Writer, stg: *STGMEDIUM) void {
     const h = stg.Anonymous.hGlobal;
     const total = GlobalSize(h);
-    if (total < 2) return null;
-    const p = GlobalLock(h) orelse return null;
+    if (total < 2) return;
+    const p = GlobalLock(h) orelse return;
     defer _ = GlobalUnlock(h);
 
     const u16ptr: [*:0]const u16 = @ptrCast(@alignCast(p));
-    const u16slice: []const u16 = std.mem.sliceTo(u16ptr, 0);
+    const utf16Slice: []const u16 = std.mem.sliceTo(u16ptr, 0);
 
-    return std.unicode.utf16LeToUtf8Alloc(allocator, u16slice) catch null;
+    var it = std.unicode.Utf16LeIterator.init(utf16Slice);
+    var buff: [4]u8 = undefined;
+    while (it.nextCodepoint() catch return) |cp| {
+        const n = std.unicode.utf8Encode(cp, &buff) catch break;
+        writer.writeAll(buff[0..n]) catch break;
+    }
 }
 
-const DropData = struct {
-    _impl: ?*IDataObject,
+/// Supported MIME Types:
+///   - text/plain
+///   - text/uri-list
+///   - text/html
+///   - image/bmp
+///   - image/png
+///   - application/x-virtual-files
+const DropDataResolver = struct {
+    pub fn streamBytes(writer: *std.io.Writer, allocator: std.mem.Allocator, state: *anyopaque, ty: u16) void {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
 
-    pub fn supports(self: *const @This(), format: []const u8) bool {
-        if (self._impl) |o| {
-            var penum: ?*com.IEnumFORMATETC = null;
-            if (o.EnumFormatEtc(@intFromEnum(com.DATADIR_GET), &penum) != 0 or penum == null) return false;
-            defer _ = IUnknown.Release(@ptrCast(penum.?));
-
-            var fetched: u32 = 0;
-            var arr: [1]FORMATETC = undefined;
-            var buff: [128:0]u16 = undefined;
-
-            while (penum.?.Next(1, &arr, &fetched) == 0 and fetched == 1) {
-                const cf = arr[0].cfFormat;
-
-                if (cf >= 1 and cf <= 18) {
-                    switch (@as(CLIPBOARD_FORMATS, @enumFromInt(cf))) {
-                        .OEMTEXT, .TEXT, .UNICODETEXT => if (std.mem.eql(u8, format, "Text")) return true,
-                        .BITMAP, .DIB, .DIBV5 => if (std.mem.eql(u8, format, "Bitmap")) return true,
-                        .HDROP => if (std.mem.eql(u8, format, "Files")) return true,
-                        // METAFILEPICT = 3,
-                        // SYLK = 4,
-                        // DIF = 5,
-                        // TIFF = 6,
-                        // PALETTE = 9,
-                        // PENDATA = 10,
-                        // RIFF = 11,
-                        // WAVE = 12,
-                        // ENHMETAFILE = 14,
-                        // LOCALE = 16,
-                        // MAX = 18,
-                        else => {},
-                    }
-                    continue;
-                }
-
-                const n = data_exchange.GetClipboardFormatNameW(@intCast(cf), &buff, buff.len);
-                if (n > 0) {
-                    const wide_slice = buff[0..@as(usize, @intCast(n))];
-                    if (std.mem.eql(u16, wide_slice, L("HTML Format")) and std.mem.eql(u8, format, "HTML")) {
-                        return true;
-                    } else if (std.mem.eql(u16, wide_slice, L("UniformResourceLocatorW")) and std.mem.eql(u8, format, "URL")) {
-                        return true;
-                    } else {
-                        var utf16It = std.unicode.Utf16LeIterator.init(wide_slice);
-                        var utf8It = std.unicode.Utf8Iterator{ .bytes = format, .i = 0 };
-
-                        var a = utf8It.nextCodepoint();
-                        var b = if (utf16It.nextCodepoint()) |cp| cp else |_| null;
-                        while (a != null and b != null) {
-                            if (a != b) break;
-
-                            a = utf8It.nextCodepoint();
-                            b = if (utf16It.nextCodepoint()) |cp| cp else |_| null;
-                        } else {
-                            return true;
-                        }
-                    }
-                }
+        // TODO: "application/x-virtual-files"
+        if (ty == 0) {
+            if (hasFormat(obj, CF_HDROP)) {
+                getFiles(obj, allocator, writer);
+            } else {
+                getUrl(obj, writer);
             }
+        } else {
+            var stg = getDataHGLOBAL(obj, ty) orelse return;
+            defer ole.ReleaseStgMedium(&stg);
+            hglobalToBytes(writer, &stg);
         }
-        return false;
     }
 
-    pub fn getText(self: *const @This(), allocator: std.mem.Allocator) ?[]const u8 {
-        const obj = self._impl orelse return null;
+    pub fn getBytes(allocator: std.mem.Allocator, state: *anyopaque, ty: u16) ?DropData.Data {
+        var result = std.io.Writer.Allocating.init(allocator);
+        defer result.deinit();
+        const writer = &result.writer;
+
+        streamBytes(writer, allocator, state, ty);
+
+        writer.flush() catch {};
+        return .{
+            .value = result.toOwnedSlice() catch return null,
+            .__a = allocator,
+        };
+    }
+
+    pub fn getText(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
         var stg = getDataHGLOBAL(obj, CF_UNICODETEXT) orelse return null;
         defer ole.ReleaseStgMedium(&stg);
-        return hglobalUtf16ToUtf8Owned(allocator, &stg) orelse null;
+
+        var result = std.io.Writer.Allocating.init(allocator);
+        defer result.deinit();
+        const writer = &result.writer;
+
+        hglobalUtf16ToUtf8(writer, &stg);
+
+        writer.flush() catch {};
+        return .{
+            .value = result.toOwnedSlice() catch return null,
+            .__a = allocator,
+        };
     }
 
-    pub fn getUrl(self: *const @This(), allocator: std.mem.Allocator) ?[]const u8 {
-        const obj = self._impl orelse return null;
-        var stg = getDataHGLOBAL(obj, CFSTR_INETURLW()) orelse return null;
-        defer ole.ReleaseStgMedium(&stg);
-        return hglobalUtf16ToUtf8Owned(allocator, &stg);
+    pub fn getUrlList(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
+        var result = std.io.Writer.Allocating.init(allocator);
+        defer result.deinit();
+        const writer = &result.writer;
+
+        if (hasFormat(obj, CF_HDROP)) {
+            getFiles(obj, allocator, writer);
+        } else {
+            getUrl(obj, writer);
+        }
+
+        writer.flush() catch {};
+        return .{
+            .value = result.toOwnedSlice() catch return null,
+            .__a = allocator,
+        };
     }
 
-    pub fn getHtml(self: *const @This(), allocator: std.mem.Allocator) ?[]const u8 {
-        const obj = self._impl orelse return null;
+    pub fn getHtml(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
         var stg = getDataHGLOBAL(obj, CFSTR_HTMLFORMAT()) orelse return null;
         defer ole.ReleaseStgMedium(&stg);
         const bytes = hglobalToBytesOwned(allocator, &stg) orelse return null;
@@ -235,95 +248,225 @@ const DropData = struct {
         if (std.mem.indexOf(u8, bytes, start_tag)) |a| {
             if (std.mem.indexOf(u8, bytes, "<!--EndFragment-->")) |b| {
                 defer allocator.free(bytes);
-                return if(allocator.dupe(u8, bytes[a + start_tag.len .. b]))|o| o else |_| null; // NOTE: using same allocation; free once
+                return .{
+                    .value = allocator.dupe(u8, bytes[a + start_tag.len .. b]) catch return null,
+                    .__a = allocator,
+                };
             }
         }
 
+        const default: DropData.Data = .{
+            .value = bytes,
+            .__a = allocator,
+        };
+
         // Fallback: attempt header offset fields
         const hdr = bytes;
-        const s_off = std.mem.indexOf(u8, hdr, "StartFragment:") orelse return bytes;
-        const e_off = std.mem.indexOf(u8, hdr, "EndFragment:") orelse return bytes;
-        const s_val = std.fmt.parseInt(usize, hdr[s_off + 14 .. s_off + 14 + 10], 10) catch return bytes;
-        const e_val = std.fmt.parseInt(usize, hdr[e_off + 12 .. e_off + 12 + 10], 10) catch return bytes;
+        const s_off = std.mem.indexOf(u8, hdr, "StartFragment:") orelse return default;
+        const e_off = std.mem.indexOf(u8, hdr, "EndFragment:") orelse return default;
+        const s_val = std.fmt.parseInt(usize, hdr[s_off + 14 .. s_off + 14 + 10], 10) catch return default;
+        const e_val = std.fmt.parseInt(usize, hdr[e_off + 12 .. e_off + 12 + 10], 10) catch return default;
         if (s_val < e_val and e_val <= bytes.len) {
             defer allocator.free(bytes);
-            return if(allocator.dupe(u8, bytes[s_val..e_val]))|o| o else |_| null;
+            return .{
+                .value = allocator.dupe(u8, bytes[s_val..e_val]) catch return null,
+                .__a = allocator,
+            };
         }
 
         // Return all bytes if parsing fails
-        return bytes;
+        return default;
     }
 
-    pub fn getFiles(self: *const @This(), allocator: std.mem.Allocator) ?[]const []const u8 {
-        const obj = self._impl orelse return null;
+    fn getUrl(data: *IDataObject, writer: *std.io.Writer) void {
+        var stg = getDataHGLOBAL(data, CFSTR_INETURLW()) orelse return;
+        defer ole.ReleaseStgMedium(&stg);
+        hglobalUtf16ToUtf8(writer, &stg);
+    }
 
-        var stg = getDataHGLOBAL(obj, CF_HDROP) orelse return null;
+    fn getFiles(data: *IDataObject, allocator: std.mem.Allocator, output: *std.io.Writer) void {
+        var stg = getDataHGLOBAL(data, CF_HDROP) orelse return;
         defer ole.ReleaseStgMedium(&stg);
 
         const hdrop: shell.HDROP = @ptrFromInt(@as(usize, @bitCast(stg.Anonymous.hGlobal)));
         const count = DragQueryFileW(hdrop, 0xFFFFFFFF, null, 0);
-        if (count == 0) return null;
+        if (count == 0) return;
 
-        var out: std.ArrayList([]const u8) = .empty;
         for (0..count) |i| {
             const need = DragQueryFileW(hdrop, @intCast(i), null, 0) + 1;
             const tmp = allocator.allocSentinel(u16, need, 0) catch continue;
             defer allocator.free(tmp);
             _ = DragQueryFileW(hdrop, @intCast(i), tmp.ptr, need);
 
-            const buff = std.unicode.utf16LeToUtf8Alloc(allocator, tmp[0..tmp.len]) catch continue;
-            out.append(allocator, buff) catch {
-                allocator.free(buff);
-                continue;
-            };
+            if (i > 0) output.writeByte('\n') catch return;
+
+            output.writeAll("file:///") catch break;
+            var it = std.unicode.Utf16LeIterator.init(tmp[0..tmp.len]);
+            var buff: [4]u8 = undefined;
+            while (it.nextCodepoint() catch return) |cp| {
+                const n = std.unicode.utf8Encode(cp, &buff) catch break;
+                output.writeAll(buff[0..n]) catch break;
+            }
         }
-        return out.toOwnedSlice(allocator) catch {
-            for (out.items) |item| allocator.free(item);
-            out.deinit(allocator);
-            return null;
-        };
     }
 
-    pub fn getBitmap(self: *@This(), allocator: std.mem.Allocator) ?[]const u8 {
-        const obj = self._impl orelse return null;
+    fn collectFormats(allocator: std.mem.Allocator, state: *anyopaque) !std.StringArrayHashMapUnmanaged(u16) {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
+        var penum: ?*com.IEnumFORMATETC = null;
+        if (obj.EnumFormatEtc(@intFromEnum(com.DATADIR_GET), &penum) != 0 or penum == null) return error.NoFormats;
+        defer _ = IUnknown.Release(@ptrCast(penum.?));
 
-        var stg = getDataHGLOBAL(obj, CF_DIBV5) orelse getDataHGLOBAL(obj, CF_DIB) orelse return null;
-        defer ole.ReleaseStgMedium(&stg);
-        const dib = hglobalToBytesOwned(&stg) orelse return null;
+        var fetched: u32 = 0;
+        var arr: [1]FORMATETC = undefined;
+        var buff: [128:0]u16 = undefined;
 
-        // Wrap DIB with a BMP file header
-        // DIB starts with BITMAPINFOHEADER/BITMAPV5HEADER; color table (if any) + bits follow.
-        // File offset to bits is sizeof(BITMAPFILEHEADER) + the DIB header + palette.
-        // For a quick/robust approach, most apps just preprend a BFH with bfOffBits = 14 + dibHeaderSize + paletteSize.
-        // Here we’ll do a minimal (not palette-aware) approach that works for common 24/32bpp:
+        var result: std.StringArrayHashMapUnmanaged(u16) = .empty;
 
-        if (dib.len < 40) return null; // need at least BITMAPINFOHEADER
-        const header_size = @as(u32, @bitCast(@as([4]u8, dib[0..4].*))); // biSize
-        const bfOff = 14 + header_size; // ok for BI_BITFIELDS/32bpp; palette images need more
-        var out = try allocator.alloc(u8, 14 + dib.len);
-        // BFH
-        out[0] = 'B';
-        out[1] = 'M';
-        std.mem.writeInt(u32, out[2..6], @intCast(out.len), .little);
-        out[6] = 0;
-        out[7] = 0;
-        out[8] = 0;
-        out[9] = 0;
-        std.mem.writeInt(u32, out[10..14], bfOff, .little);
-        // DIB
-        std.mem.copy(u8, out[14..], dib);
-        return out; // BMP file bytes; can be written to disk as `.bmp`
+        while (penum.?.Next(1, &arr, &fetched) == 0 and fetched == 1) {
+            const cf = arr[0].cfFormat;
+
+            if (cf >= 1 and cf <= 18) {
+                switch (@as(CLIPBOARD_FORMATS, @enumFromInt(cf))) {
+                    .TEXT, .UNICODETEXT => try result.put(allocator, "text/plain", CF_TEXT),
+                    .HDROP => try result.put(allocator, "text/uri-list", 0),
+                    .DIB => try result.put(allocator, "image/bmp", CF_DIB),
+                    .DIBV5 => try result.put(allocator, "image/bmp", CF_DIBV5),
+                    else => {},
+                }
+                continue;
+            }
+
+            const n = data_exchange.GetClipboardFormatNameW(@intCast(cf), &buff, buff.len);
+            if (n > 0) {
+                const wide_slice = buff[0..@as(usize, @intCast(n))];
+                if (std.mem.eql(u16, wide_slice, L("HTML Format"))) {
+                    try result.put(allocator, "text/html", cf);
+                } else if (std.mem.eql(u16, wide_slice, L("UniformResourceLocatorW"))) {
+                    try result.put(allocator, "text/url-list", cf);
+                } else if (std.mem.eql(u16, wide_slice, L("PNG"))) {
+                    try result.put(allocator, "image/png", cf);
+                } else if (std.mem.eql(u16, wide_slice, L("FileGroupDescriptorW")) or std.mem.eql(u16, wide_slice, L("FileContents"))) {
+                    try result.put(allocator, "application/x-virtual-files", cf);
+                }
+                // TODO: way to convert into custom mime type
+            }
+        }
+
+        return result;
     }
 };
 
-const DropTarget = extern struct {
-    vtable: *const IDropTarget.VTable,
-    ref_count: std.atomic.Value(u32),
-    hwnd: HWND,
-    helper: ?*IDropTargetHelper,
+const DropData = struct {
+    _state: ?*anyopaque,
+    _allocator: std.mem.Allocator,
+    mime_to_format: std.StringArrayHashMapUnmanaged(u16),
 
+    pub const Data = struct {
+        __a: std.mem.Allocator,
+        value: []const u8,
+        pub fn deinit(self: @This()) void {
+            self.__a.free(self.value);
+        }
+    };
+
+    pub fn init(allocator: std.mem.Allocator, instance: ?*anyopaque) @This() {
+        if (instance) |data| {
+            return .{
+                ._allocator = allocator,
+                ._state = instance,
+                .mime_to_format = DropDataResolver.collectFormats(allocator, data) catch .empty,
+            };
+        } else {
+            return .{
+                ._allocator = allocator,
+                ._state = instance,
+                .mime_to_format = .empty,
+            };
+        }
+    }
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        self.mime_to_format.deinit(allocator);
+    }
+
+    pub fn contains(self: *const @This(), mime: []const u8) bool {
+        return self.mime_to_format.contains(mime);
+    }
+
+    pub fn mime_types(self: *const @This()) []const []const u8 {
+        return self.mime_to_format.keys();
+    }
+
+    pub fn streamBytes(self: *const @This(), mime: []const u8, writer: *std.io.Writer) void {
+        if (self._state) |state| {
+            DropDataResolver.streamBytes(
+                writer,
+                self._allocator,
+                state,
+                self.mime_to_format.get(mime) orelse 0,
+            );
+            writer.flush() catch {};
+        }
+    }
+
+    pub fn getBytes(self: *const @This(), mime: []const u8) ?DropData.Data {
+        if (self._state) |state| {
+            return DropDataResolver.getBytes(
+                self._allocator,
+                state,
+                self.mime_to_format.get(mime) orelse 0,
+            );
+        }
+        return null;
+    }
+
+    pub fn getText(self: *const @This()) ?DropData.Data {
+        if (self._state) |state| {
+            return DropDataResolver.getText(self._allocator, state);
+        }
+        return null;
+    }
+
+    pub fn getUrlList(self: *const @This()) ?DropData.Data {
+        if (self._state) |state| {
+            return DropDataResolver.getUrlList(self._allocator, state);
+        }
+        return null;
+    }
+
+    pub fn getHtml(self: *const @This()) ?DropData.Data {
+        if (self._state) |state| {
+            return DropDataResolver.getHtml(self._allocator, state);
+        }
+        return null;
+    }
+};
+
+const DropTarget = struct {
+    allocator: std.mem.Allocator,
     context: DragDropContext,
     state: ?*anyopaque = null,
+
+    pub fn init(allocator: std.mem.Allocator, context: Context) @This() {
+        return .{
+            .allocator = allocator,
+            .context = .{
+                .enter = @ptrCast(@constCast(context.enter)),
+                .over = @ptrCast(@constCast(context.over)),
+                .drop = @ptrCast(@constCast(context.drop)),
+                .leave = @ptrCast(@constCast(context.leave)),
+            },
+        };
+    }
+
+    pub fn initWithState(allocator: std.mem.Allocator, context: Context, state: anytype) @This() {
+        return .{ .allocator = allocator, .context = .{
+            .enter = @ptrCast(@constCast(context.enter)),
+            .over = @ptrCast(@constCast(context.over)),
+            .drop = @ptrCast(@constCast(context.drop)),
+            .leave = @ptrCast(@constCast(context.leave)),
+        }, .state = @ptrCast(state) };
+    }
 
     pub const Context = struct {
         enter: ?DragDropContext.OnEnter = null,
@@ -331,49 +474,26 @@ const DropTarget = extern struct {
         drop: ?DragDropContext.OnDrop = null,
         leave: ?DragDropContext.OnLeave = null,
     };
+};
 
-    pub fn init(hwnd: HWND, context: Context) !*@This() {
+const DropTargetHandler = extern struct {
+    vtable: *const IDropTarget.VTable,
+    ref_count: std.atomic.Value(u32),
+    hwnd: HWND,
+    helper: ?*IDropTargetHelper,
+
+    // DropTarget
+    target: *anyopaque,
+
+    pub fn init(hwnd: HWND, target: *const DropTarget) !*@This() {
         const self = try std.heap.c_allocator.create(@This());
-        self.* = .{
-            .vtable = &VTABLE,
-            .ref_count = .init(1),
-            .hwnd = hwnd,
-            .helper = null,
-            .context = .{
-                .enter = @ptrCast(@constCast(context.enter)),
-                .over = @ptrCast(@constCast(context.over)),
-                .drop = @ptrCast(@constCast(context.drop)),
-                .leave = @ptrCast(@constCast(context.leave)),
-            },
-        };
+        self.* = .{ .vtable = &VTABLE, .ref_count = .init(1), .hwnd = hwnd, .helper = null, .target = @ptrCast(@constCast(target)) };
 
         var p: *IDropTargetHelper = undefined;
         const hr = com.CoCreateInstance(&CLSID_DragDropHelper, null, com.CLSCTX_INPROC_SERVER, shell.IID_IDropTargetHelper, @ptrCast(&p));
         if (hr != 0) return windows.core.hresultToError(hr).err;
         self.helper = p;
-        return self;
-    }
 
-    pub fn initWithState(hwnd: HWND, context: Context, state: anytype) !*@This() {
-        const self = try std.heap.c_allocator.create(@This());
-        self.* = .{
-            .vtable = &VTABLE,
-            .ref_count = .init(1),
-            .hwnd = hwnd,
-            .helper = null,
-            .context = .{
-                .enter = @ptrCast(@constCast(context.enter)),
-                .over = @ptrCast(@constCast(context.over)),
-                .drop = @ptrCast(@constCast(context.drop)),
-                .leave = @ptrCast(@constCast(context.leave)),
-            },
-            .state = @ptrCast(state),
-        };
-
-        var p: *IDropTargetHelper = undefined;
-        const hr = com.CoCreateInstance(&CLSID_DragDropHelper, null, com.CLSCTX_INPROC_SERVER, shell.IID_IDropTargetHelper, @ptrCast(&p));
-        if (hr != 0) return windows.core.hresultToError(hr).err;
-        self.helper = p;
         return self;
     }
 
@@ -434,9 +554,10 @@ const DropTarget = extern struct {
         pdwEffect: ?*u32,
     ) callconv(.winapi) HRESULT {
         const this: *@This() = @ptrCast(@constCast(self));
+        const target: *const DropTarget = @ptrCast(@alignCast(this.target));
 
-        const effect = this.context.onEnter(
-            this.state,
+        const effect = target.context.onEnter(
+            target.state,
             this.screenToWindow(pt),
             .{
                 .left = grfKeyState & windows_and_messaging.MK_LBUTTON != 0,
@@ -470,9 +591,10 @@ const DropTarget = extern struct {
         pdwEffect: ?*u32,
     ) callconv(.winapi) HRESULT {
         const this: *@This() = @ptrCast(@constCast(self));
+        const target: *const DropTarget = @ptrCast(@alignCast(this.target));
 
-        const effect = this.context.onOver(
-            this.state,
+        const effect = target.context.onOver(
+            target.state,
             this.screenToWindow(pt),
             .{
                 .left = grfKeyState & windows_and_messaging.MK_LBUTTON != 0,
@@ -504,10 +626,13 @@ const DropTarget = extern struct {
 
     fn DragLeave(self: *const IDropTarget) callconv(.winapi) HRESULT {
         const this: *@This() = @ptrCast(@constCast(self));
-        this.context.onLeave(this.state);
+        const target: *const DropTarget = @ptrCast(@alignCast(this.target));
+
+        target.context.onLeave(target.state);
         if (this.helper) |h| {
             _ = h.DragLeave();
         }
+
         return 0;
     }
 
@@ -520,12 +645,14 @@ const DropTarget = extern struct {
     ) callconv(.winapi) HRESULT {
         const this: *@This() = @ptrCast(@constCast(self));
 
-        var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+        const target: *const DropTarget = @ptrCast(@alignCast(this.target));
+        var arena = std.heap.ArenaAllocator.init(target.allocator);
         defer arena.deinit();
-        const data = DropData{ ._impl = pDataObj };
 
-        const effect = this.context.onDrop(
-            this.state,
+        const data = DropData.init(arena.allocator(), pDataObj);
+
+        const effect = target.context.onDrop(
+            target.state,
             this.screenToWindow(pt),
             .{
                 .left = grfKeyState & windows_and_messaging.MK_LBUTTON != 0,
@@ -574,11 +701,21 @@ fn registerClipboardFormat(format: [:0]const u16) u16 {
     return @truncate(data_exchange.RegisterClipboardFormatW(format.ptr));
 }
 
-fn CFSTR_PNG() u16 { return registerClipboardFormat(L("PNG")); }
-fn CFSTR_HTMLFORMAT() u16 { return registerClipboardFormat(L("HTML Format")); }
-fn CFSTR_INETURLW() u16 { return registerClipboardFormat(L("UniformResourceLocatorW")); }
-fn CFSTR_FILEDESCRIPTORW() u16 { return registerClipboardFormat(L("FileGroupDescriptorW")); }
-fn CFSTR_FILECONTENTS() u16 { return registerClipboardFormat(L("FileContents")); }
+fn CFSTR_PNG() u16 {
+    return registerClipboardFormat(L("PNG"));
+}
+fn CFSTR_HTMLFORMAT() u16 {
+    return registerClipboardFormat(L("HTML Format"));
+}
+fn CFSTR_INETURLW() u16 {
+    return registerClipboardFormat(L("UniformResourceLocatorW"));
+}
+fn CFSTR_FILEDESCRIPTORW() u16 {
+    return registerClipboardFormat(L("FileGroupDescriptorW"));
+}
+fn CFSTR_FILECONTENTS() u16 {
+    return registerClipboardFormat(L("FileContents"));
+}
 
 fn hasFormatExact(obj: *IDataObject, cf: u16, tymed: TYMED) bool {
     var fmt = FORMATETC{
@@ -592,19 +729,22 @@ fn hasFormatExact(obj: *IDataObject, cf: u16, tymed: TYMED) bool {
     return obj.QueryGetData(&fmt) != 0;
 }
 
+fn hasFormat(dobj: *win32.system.com.IDataObject, cf: u16) bool {
+    var fmt = FORMATETC{
+        .cfFormat = cf,
+        .ptd = null,
+        .dwAspect = @intFromEnum(DVASPECT_CONTENT),
+        .lindex = -1,
+        .tymed = @intFromEnum(TYMED.HGLOBAL),
+    };
+    return dobj.QueryGetData(&fmt) == 0;
+}
+
 const CF_UNICODETEXT: u16 = @intFromEnum(win32.system.system_services.CF_UNICODETEXT);
+const CF_TEXT: u16 = @intFromEnum(win32.system.system_services.CF_UNICODETEXT);
 const CF_HDROP: u16 = @intFromEnum(win32.system.system_services.CF_HDROP);
 const CF_DIB: u16 = @intFromEnum(win32.system.system_services.CF_DIB);
 const CF_DIBV5: u16 = @intFromEnum(win32.system.system_services.CF_DIBV5);
-
-fn hasFormat_(obj: *IDataObject, cf: u16) bool {
-    if (cf == CFSTR_FILECONTENTS()) {
-        if (hasFormatExact(obj, cf, TYMED.ISTREAM)) return true;
-        if (hasFormatExact(obj, cf, TYMED.ISTORAGE)) return true;
-    }
-
-    return hasFormatExact(obj, cf, TYMED.HGLOBAL);
-}
 
 const core = @import("storytree-core");
 const event = core.event;
@@ -614,20 +754,15 @@ const Window = @import("storytree-core").Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 
-const State = struct {
-    allocator: std.mem.Allocator,
-
-    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: Event) !void {
-        _ = self;
-        switch (evt) {
-            .close => event_loop.closeWindow(window.id()),
-            .key_input => |key_event| {
-                std.debug.print("{any}\n", .{key_event.key});
-            },
-            else => {},
-        }
+pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: Event) !void {
+    switch (evt) {
+        .close => event_loop.closeWindow(window.id()),
+        .key_input => |key_event| {
+            std.debug.print("{any}\n", .{key_event.key});
+        },
+        else => {},
     }
-};
+}
 
 fn onDrag(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) !DropEffect {
     _ = state;
@@ -639,37 +774,31 @@ fn onDrag(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) !
 }
 
 fn onDrop(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, data: DropData) !DropEffect {
+    _ = state;
     _ = point;
 
-    var gpa: *std.heap.GeneralPurposeAllocator(.{}) = @ptrCast(@alignCast(state.?));
-    const allocator = gpa.allocator();
+    // TODO: Virtual Files
+    if (data.contains("text/uri-list")) {
+        const stdout = std.fs.File.stdout();
+        var buffer: [1024]u8 = undefined;
+        var writer = stdout.writer(&buffer);
 
-    if (data.supports("URL")) {
-        if (data.getUrl(allocator)) |text| {
-            defer allocator.free(text);
-            std.debug.print("[URL] {s}\n", .{text});
-        }
-    } else if (data.supports("HTML")) {
-        if (data.getHtml(allocator)) |text| {
-            defer allocator.free(text);
-            std.debug.print("[HTML] {s}\n", .{text});
-        }
-    } else if (data.supports("Text")) {
-        if (data.getText(allocator)) |text| {
-            defer allocator.free(text);
-            std.debug.print("[TEXT] {s}\n", .{text});
-        }
-    } else if (data.supports("Files")) {
-        if (data.getFiles(allocator)) |files| {
-            defer {
-                for (files) |file| allocator.free(file);
-                allocator.free(files);
-            }
+        std.debug.print("[URL List]\n", .{});
+        data.streamBytes("text/uri-list", &writer.interface);
+    } else if (data.contains("text/html")) {
+        const stdout = std.fs.File.stdout();
+        var buffer: [1024]u8 = undefined;
+        var writer = stdout.writer(&buffer);
 
-            std.debug.print("[FILES]\n", .{});
-            for (files) |file| {
-                std.debug.print("  - {s}\n", .{file});
-            }
+        std.debug.print("----- HTML -----\n", .{});
+        data.streamBytes("text/html", &writer.interface);
+        std.debug.print("\n", .{});
+        std.debug.print("----- TEXT -----\n", .{});
+        data.streamBytes("text/plain", &writer.interface);
+    } else if (data.contains("text/plain")) {
+        if (data.getText()) |text| {
+            defer text.deinit();
+            std.debug.print("[TEXT] {s}\n", .{text.value});
         }
     }
 
@@ -689,8 +818,6 @@ pub fn main() !void {
     var event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
 
-    var state: State = .{ .allocator = allocator };
-
     const window = try event_loop.createWindow(.{
         .title = "Drag & Drop",
         .width = 800,
@@ -699,20 +826,22 @@ pub fn main() !void {
 
     const hwnd = window.impl.handle;
 
-    const drop_target = try DropTarget.initWithState(hwnd, .{
+    const drag_drop = DropTarget.init(allocator, .{
         .enter = onDrag,
         .over = onDrag,
         .drop = onDrop,
-    }, &gpa);
-    defer drop_target.deinit();
+    });
 
-    const hr = RegisterDragDrop(hwnd, @ptrCast(drop_target));
+    const handler = try DropTargetHandler.init(hwnd, &drag_drop);
+    defer handler.deinit();
+
+    const hr = RegisterDragDrop(hwnd, @ptrCast(handler));
     defer _ = RevokeDragDrop(hwnd);
     if (hr != 0) return windows.core.hresultToError(hr).err;
 
     while (event_loop.isActive()) {
         if (event_loop.poll()) |data| {
-            try state.handleEvent(&event_loop, data.window, data.event);
+            try handleEvent(&event_loop, data.window, data.event);
         }
     }
 }
