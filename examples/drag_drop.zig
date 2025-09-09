@@ -19,6 +19,14 @@ const IDataObject = com.IDataObject;
 const IDropTarget = ole.IDropTarget;
 const IDropTargetHelper = shell.IDropTargetHelper;
 const CLSID_DragDropHelper = shell.CLSID_DragDropHelper;
+const IStream = com.IStream;
+const ILockBytes = com.structured_storage.ILockBytes;
+const CreateILockBytesOnHGlobal = com.structured_storage.CreateILockBytesOnHGlobal;
+const IStorage = com.structured_storage.IStorage;
+const ISequentialStream = com.ISequentialStream;
+const GetTemptFileNameW = win32.storage.file_system.GetTempFileNameW;
+const GetTempPathW = win32.storage.file_system.GetTempPathW;
+const DeleteFileW = win32.storage.file_system.DeleteFileW;
 
 const HWND = foundation.HWND;
 const HRESULT = foundation.HRESULT;
@@ -37,6 +45,8 @@ const CLIPBOARD_FORMATS = win32.system.system_services.CLIPBOARD_FORMATS;
 
 const FORMATETC = com.FORMATETC;
 const STGMEDIUM = com.STGMEDIUM;
+const STGM = com.structured_storage.STGM;
+const STGC = com.STGC;
 
 const RegisterDragDrop = ole.RegisterDragDrop;
 const RevokeDragDrop = ole.RevokeDragDrop;
@@ -46,10 +56,14 @@ const CoInitializeEx = com.CoInitializeEx;
 const CoUninitialize = com.CoUninitialize;
 
 const GlobalLock = win32.system.memory.GlobalLock;
+const GMEM_MOVEABLE = win32.system.memory.GMEM_MOVEABLE;
+const GlobalAlloc = win32.system.memory.GlobalAlloc;
+const GlobalFree = win32.system.memory.GlobalFree;
 const GlobalUnlock = win32.system.memory.GlobalUnlock;
 const GlobalSize = win32.system.memory.GlobalSize;
 const DragQueryFileW = shell.DragQueryFileW;
 const DragFinish = shell.DragFinish;
+const FILEDESCRIPTORW = shell.FILEDESCRIPTORW;
 
 const L = std.unicode.utf8ToUtf16LeStringLiteral;
 const print = std.debug.print;
@@ -112,7 +126,13 @@ const DragDropContext = extern struct {
 };
 
 fn getDataHGLOBAL(dobj: *IDataObject, cf: u16) ?STGMEDIUM {
-    var fmt = FORMATETC{ .cfFormat = cf, .ptd = null, .dwAspect = @intFromEnum(DVASPECT_CONTENT), .lindex = -1, .tymed = @intFromEnum(TYMED.HGLOBAL) };
+    var fmt = FORMATETC{
+        .cfFormat = cf,
+        .ptd = null,
+        .dwAspect = @intFromEnum(DVASPECT_CONTENT),
+        .lindex = -1,
+        .tymed = @intFromEnum(TYMED.HGLOBAL),
+    };
     var stg = std.mem.zeroes(STGMEDIUM);
     if (dobj.GetData(&fmt, &stg) != 0) return null;
     if (stg.tymed != @as(u32, @intFromEnum(TYMED.HGLOBAL))) {
@@ -122,8 +142,25 @@ fn getDataHGLOBAL(dobj: *IDataObject, cf: u16) ?STGMEDIUM {
     return stg; // caller must ReleaseStgMedium
 }
 
-fn hglobalToBytes(writer: *std.io.Writer, stg: *STGMEDIUM) void {
-    const h = stg.Anonymous.hGlobal;
+fn tryGetData(dobj: *const IDataObject, cf: u16, tymed: TYMED, idx: i32) ?STGMEDIUM {
+    var fmt = FORMATETC{
+        .cfFormat = cf,
+        .ptd = null,
+        .dwAspect = @intFromEnum(DVASPECT_CONTENT),
+        .lindex = idx,
+        .tymed = @bitCast(@intFromEnum(tymed)),
+    };
+    var stg = std.mem.zeroes(STGMEDIUM);
+    // if (dobj.QueryGetData(&fmt) != 0) return null;
+    if (dobj.GetData(&fmt, &stg) != 0) return null;
+    if (stg.tymed != @as(u32, @bitCast(@intFromEnum(tymed)))) {
+        ole.ReleaseStgMedium(&stg);
+        return null;
+    }
+    return stg; // caller must ReleaseStgMedium
+}
+
+fn hglobalToBytes(writer: *std.io.Writer, h: isize) void {
     const n = GlobalSize(h);
     if (n == 0) return;
     const p = GlobalLock(h) orelse return;
@@ -132,8 +169,7 @@ fn hglobalToBytes(writer: *std.io.Writer, stg: *STGMEDIUM) void {
     _ = writer.writeAll(@as([*]const u8, @ptrCast(p))[0..n]) catch {};
 }
 
-fn hglobalToBytesOwned(allocator: std.mem.Allocator, stg: *STGMEDIUM) ?[]const u8 {
-    const h = stg.Anonymous.hGlobal;
+fn hglobalToBytesOwned(allocator: std.mem.Allocator, h: isize) ?[]const u8 {
     const n = GlobalSize(h);
     if (n == 0) return null;
     const p = GlobalLock(h) orelse return null;
@@ -173,7 +209,9 @@ const DropDataResolver = struct {
     pub fn streamBytes(writer: *std.io.Writer, allocator: std.mem.Allocator, state: *anyopaque, ty: u16) void {
         const obj: *IDataObject = @ptrCast(@alignCast(state));
 
-        // TODO: "application/x-virtual-files"
+        // Skip virtual files as those are handled differently
+        if (ty == CFSTR_FILEDESCRIPTORW()) return;
+
         if (ty == 0) {
             if (hasFormat(obj, CF_HDROP)) {
                 getFiles(obj, allocator, writer);
@@ -183,11 +221,11 @@ const DropDataResolver = struct {
         } else {
             var stg = getDataHGLOBAL(obj, ty) orelse return;
             defer ole.ReleaseStgMedium(&stg);
-            hglobalToBytes(writer, &stg);
+            hglobalToBytes(writer, stg.Anonymous.hGlobal);
         }
     }
 
-    pub fn getBytes(allocator: std.mem.Allocator, state: *anyopaque, ty: u16) ?DropData.Data {
+    pub fn getBytes(allocator: std.mem.Allocator, state: *anyopaque, ty: u16) ?Ref([]const u8) {
         var result = std.io.Writer.Allocating.init(allocator);
         defer result.deinit();
         const writer = &result.writer;
@@ -201,7 +239,7 @@ const DropDataResolver = struct {
         };
     }
 
-    pub fn getText(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+    pub fn getText(allocator: std.mem.Allocator, state: *anyopaque) ?Ref([]const u8) {
         const obj: *IDataObject = @ptrCast(@alignCast(state));
         var stg = getDataHGLOBAL(obj, CF_UNICODETEXT) orelse return null;
         defer ole.ReleaseStgMedium(&stg);
@@ -219,7 +257,7 @@ const DropDataResolver = struct {
         };
     }
 
-    pub fn getUrlList(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+    pub fn getUrlList(allocator: std.mem.Allocator, state: *anyopaque) ?Ref([]const u8) {
         const obj: *IDataObject = @ptrCast(@alignCast(state));
         var result = std.io.Writer.Allocating.init(allocator);
         defer result.deinit();
@@ -238,11 +276,11 @@ const DropDataResolver = struct {
         };
     }
 
-    pub fn getHtml(allocator: std.mem.Allocator, state: *anyopaque) ?DropData.Data {
+    pub fn getHtml(allocator: std.mem.Allocator, state: *anyopaque) ?Ref([]const u8) {
         const obj: *IDataObject = @ptrCast(@alignCast(state));
         var stg = getDataHGLOBAL(obj, CFSTR_HTMLFORMAT()) orelse return null;
         defer ole.ReleaseStgMedium(&stg);
-        const bytes = hglobalToBytesOwned(allocator, &stg) orelse return null;
+        const bytes = hglobalToBytesOwned(allocator, stg.Anonymous.hGlobal) orelse return null;
 
         const start_tag = "<!--StartFragment-->";
         if (std.mem.indexOf(u8, bytes, start_tag)) |a| {
@@ -282,6 +320,43 @@ const DropDataResolver = struct {
         var stg = getDataHGLOBAL(data, CFSTR_INETURLW()) orelse return;
         defer ole.ReleaseStgMedium(&stg);
         hglobalUtf16ToUtf8(writer, &stg);
+    }
+
+    fn getVirtualFiles(allocator: std.mem.Allocator, state: *anyopaque) ?Ref([]const VirtualFile) {
+        const obj: *IDataObject = @ptrCast(@alignCast(state));
+
+        var stg = getDataHGLOBAL(obj, CFSTR_FILEDESCRIPTORW()) orelse return null;
+        defer ole.ReleaseStgMedium(&stg);
+
+        const p = GlobalLock(stg.Anonymous.hGlobal) orelse return null;
+        defer _ = GlobalUnlock(stg.Anonymous.hGlobal);
+
+        const count = @as(*const u32, @ptrCast(@alignCast(p))).*;
+        const first_desc = @as([*]const FILEDESCRIPTORW, @ptrFromInt(@intFromPtr(p) + @sizeOf(u32)));
+        var out: std.ArrayList(VirtualFile) = .empty;
+
+        for (0..count) |i| {
+            const fd = first_desc[i];
+            const nm16: []const u16 = std.mem.span(@as([*:0]const u16, @ptrCast(@alignCast(&fd.cFileName))));
+            const name = std.unicode.utf16LeToUtf8Alloc(allocator, nm16) catch continue;
+
+            const has_size = fd.dwFlags & @as(u32, @intFromEnum(shell.FD_FLAGS.FILESIZE)) != 0;
+            const sz: u64 = (@as(u64, fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
+            out.append(allocator, .{
+                .name = name,
+                .size = if (has_size) sz else null,
+                .index = @intCast(i),
+                .__allocator = allocator,
+                .__obj = obj,
+            }) catch {
+                allocator.free(name);
+            };
+        }
+
+        return .{
+            .value = out.toOwnedSlice(allocator) catch return null,
+            .__a = allocator,
+        };
     }
 
     fn getFiles(data: *IDataObject, allocator: std.mem.Allocator, output: *std.io.Writer) void {
@@ -356,18 +431,129 @@ const DropDataResolver = struct {
     }
 };
 
-const DropData = struct {
+pub const VirtualFile = struct {
+    name: []const u8,
+    size: ?u64,
+    index: u32,
+
+    __allocator: std.mem.Allocator,
+    __obj: *const IDataObject,
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+    }
+
+    pub fn stream(self: *const @This(), writer: *std.io.Writer) !void {
+        if (tryGetData(self.__obj, CFSTR_FILECONTENTS(), TYMED.ISTREAM, @bitCast(self.index))) |stg| {
+            defer ole.ReleaseStgMedium(@constCast(&stg));
+
+            if (stg.Anonymous.pstm) |istream| {
+                const seq: *ISequentialStream = @ptrCast(istream);
+
+                var buffer: [1024 * 32]u8 = undefined;
+                while (true) {
+                    var read: u32 = 0;
+                    if (seq.Read(&buffer, buffer.len, &read) != 0) return error.ReadFailed;
+                    if (read == 0) break;
+                    try writer.writeAll(buffer[0..read]);
+                }
+            }
+        } else if (tryGetData(self.__obj, CFSTR_FILECONTENTS(), TYMED.ISTORAGE, @bitCast(self.index))) |stg| {
+            defer ole.ReleaseStgMedium(@constCast(&stg));
+
+            if (stg.Anonymous.pstg) |istorage| {
+                var tmpdir16: [260:0]u16 = undefined;
+                const dlen = GetTempPathW(tmpdir16.len, &tmpdir16);
+                if (dlen == 0 or dlen > tmpdir16.len) return error.TempDir;
+
+                var tmpfile16: [260]u16 = undefined;
+                if (GetTemptFileNameW(&tmpdir16, std.unicode.utf8ToUtf16LeStringLiteral("DND"), 0, &tmpfile16) == 0) {
+                    return error.TempFile;
+                }
+
+                var dst: ?*IStorage = null;
+                const flags = STGM { .CREATE = 1, .READWRITE = 1, .SHARE_EXCLUSIVE = 1 };
+                var h = com.structured_storage.StgCreateDocfile(@ptrCast(&tmpfile16), flags, 0, &dst);
+                if (h != 0 or dst == null) {
+                    std.debug.print("0x{X}\n", .{ @as(u32, @bitCast(h)) });
+                    return error.CreateDocfileILockBytes;
+                }
+                defer _ = DeleteFileW(@ptrCast(&tmpfile16));
+                defer _ = IUnknown.Release(@ptrCast(dst.?));
+
+                h = istorage.CopyTo(0, null, null, dst.?);
+                if (h != 0) {
+                    std.debug.print("0x{X}\n", .{ @as(u32, @bitCast(h)) });
+                    return error.IStorageCopyTo;
+                }
+                _ = dst.?.Commit(STGC { });
+
+                const path = std.mem.span(@as([*:0]const u16, @ptrCast(&tmpfile16)));
+                const pathUtf8 = try std.unicode.utf16LeToUtf8Alloc(self.__allocator, path);
+                defer self.__allocator.free(pathUtf8);
+
+                const f = try std.fs.openFileAbsolute(pathUtf8, .{});
+                defer f.close();
+
+                var buffer: [1024]u8 = undefined;
+                var reader = f.reader(&buffer);
+                _ = try writer.sendFileAll(&reader, .unlimited);
+            }
+        } else if (tryGetData(self.__obj, CFSTR_FILECONTENTS(), TYMED.HGLOBAL, @bitCast(self.index))) |stg| {
+            defer ole.ReleaseStgMedium(@constCast(&stg));
+            hglobalToBytes(writer, stg.Anonymous.hGlobal);
+        }
+    }
+
+    pub fn bytes(self: *const @This()) !Ref([]const u8) {
+        var result = std.io.Writer.Allocating.init(self.__allocator);
+        defer result.deinit();
+        try self.stream(&result.writer);
+        return try result.toOwnedSlice();
+    }
+};
+
+pub fn Ref(T: type) type {
+    return struct {
+        __a: std.mem.Allocator,
+        value: T,
+
+        pub fn deinit(self: @This()) void {
+            switch (@typeInfo(T)) {
+                .pointer => |ptr| {
+                    switch (@typeInfo(ptr.child)) {
+                        .@"struct", .@"enum", .@"union", .@"opaque" => {
+                            if (@hasDecl(ptr.child, "deinit")) {
+                                if (ptr.size == .slice or ptr.size == .many) {
+                                    for (self.value) |item| item.deinit(self.__a);
+                                } else {
+                                    self.value.deinit(self.__a);
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+
+                    if (ptr.size == .one) {
+                        self.__a.destroy(self.value);
+                    } else if (ptr.size == .slice) {
+                        self.__a.free(self.value);
+                    }
+                },
+                else => {
+                    if (@hasDecl(self.value, "deinit")) {
+                        self.value.deinit(self.__a);
+                    }
+                },
+            }
+        }
+    };
+}
+
+pub const DropData = struct {
     _state: ?*anyopaque,
     _allocator: std.mem.Allocator,
     mime_to_format: std.StringArrayHashMapUnmanaged(u16),
-
-    pub const Data = struct {
-        __a: std.mem.Allocator,
-        value: []const u8,
-        pub fn deinit(self: @This()) void {
-            self.__a.free(self.value);
-        }
-    };
 
     pub fn init(allocator: std.mem.Allocator, instance: ?*anyopaque) @This() {
         if (instance) |data| {
@@ -409,7 +595,7 @@ const DropData = struct {
         }
     }
 
-    pub fn getBytes(self: *const @This(), mime: []const u8) ?DropData.Data {
+    pub fn getBytes(self: *const @This(), mime: []const u8) ?Ref([]const u8) {
         if (self._state) |state| {
             return DropDataResolver.getBytes(
                 self._allocator,
@@ -420,21 +606,28 @@ const DropData = struct {
         return null;
     }
 
-    pub fn getText(self: *const @This()) ?DropData.Data {
+    pub fn getText(self: *const @This()) ?Ref([]const u8) {
         if (self._state) |state| {
             return DropDataResolver.getText(self._allocator, state);
         }
         return null;
     }
 
-    pub fn getUrlList(self: *const @This()) ?DropData.Data {
+    pub fn getVirtualFiles(self: *const @This()) ?Ref([]const VirtualFile) {
+        if (self._state) |state| {
+            return DropDataResolver.getVirtualFiles(self._allocator, state);
+        }
+        return null;
+    }
+
+    pub fn getUrlList(self: *const @This()) ?Ref([]const u8) {
         if (self._state) |state| {
             return DropDataResolver.getUrlList(self._allocator, state);
         }
         return null;
     }
 
-    pub fn getHtml(self: *const @This()) ?DropData.Data {
+    pub fn getHtml(self: *const @This()) ?Ref([]const u8) {
         if (self._state) |state| {
             return DropDataResolver.getHtml(self._allocator, state);
         }
@@ -777,8 +970,27 @@ fn onDrop(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, d
     _ = state;
     _ = point;
 
+    for (data.mime_types()) |mime| {
+        std.debug.print("{s}\n", .{mime});
+    }
+
     // TODO: Virtual Files
-    if (data.contains("text/uri-list")) {
+    if (data.contains("application/x-virtual-files")) {
+        if (data.getVirtualFiles()) |virtual_files| {
+            const stdout = std.fs.File.stdout();
+            var buffer: [1024]u8 = undefined;
+            var writer = stdout.writer(&buffer);
+
+            for (virtual_files.value) |vf| {
+                std.debug.print("{d}. {s}\n", .{ vf.index, vf.name });
+                vf.stream(&writer.interface) catch |err| {
+                    std.debug.print("[error] {any}", .{err});
+                };
+                writer.interface.writeByte('\n') catch {};
+                writer.interface.flush() catch {};
+            }
+        }
+    } else if (data.contains("text/uri-list")) {
         const stdout = std.fs.File.stdout();
         var buffer: [1024]u8 = undefined;
         var writer = stdout.writer(&buffer);
