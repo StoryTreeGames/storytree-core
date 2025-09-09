@@ -5,10 +5,11 @@ const Icon = @import("icon.zig").Icon;
 const Cursor = @import("cursor.zig").Cursor;
 const EventLoop = @import("event.zig").EventLoop;
 const MenuItem = @import("menu.zig").Item;
+const DropTarget = @import("drag_drop.zig").DropTarget;
 
 pub const Impl = switch (@import("builtin").os.tag) {
     .windows => @import("windows/window.zig"),
-    else => @compileError("platform not supported")
+    else => @compileError("platform not supported"),
 };
 
 pub const Theme = enum {
@@ -145,7 +146,21 @@ pub fn setMenu(self: *@This(), menu: ?[]const MenuItem) !void {
     try self.impl.setMenu(self.arena.allocator(), menu);
 }
 
+/// Set or replace the window's system tray icon and menu
+pub fn setSystemTray(
+    self: *@This(),
+    tip: []const u8,
+    onclick: ?*const fn (ev: *EventLoop, window: *@This()) void,
+    menu: ?[]const MenuItem,
+) !void {
+    try self.impl.setSystemTray(self.arena.allocator(), tip, onclick, menu);
+}
+
 /// Set the window's configured theme
 pub fn setTheme(self: *@This(), theme: Theme) void {
     self.impl.setTheme(theme);
+}
+
+pub fn setDragDrop(self: *@This(), context: DropTarget.Context) !void {
+    try self.impl.setDragDrop(self.arena.allocator(), context);
 }

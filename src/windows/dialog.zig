@@ -207,7 +207,7 @@ pub fn message(buttons: ?Buttons, opts: MessageOptions) ?Button {
     } else MESSAGEBOX_STYLE{});
 
     const result = MessageBoxA(
-        null,
+        if (opts.owner) |p| @ptrFromInt(p) else null,
         if (opts.message) |m| @ptrCast(m.ptr) else null,
         if (opts.title) |t| @ptrCast(t.ptr) else null,
         @as(MESSAGEBOX_STYLE, @bitCast(button_style | icon_style)),
@@ -256,7 +256,7 @@ pub fn open(allocator: std.mem.Allocator, opts: FileOpenDialogOptions) !?[]const
     if (hresult != 0) return hresultToError(hresult).err;
 
     const modal: *IModalWindow = @ptrCast(file_open_dialog);
-    switch (@as(u32, @bitCast(modal.Show(null)))) {
+    switch (@as(u32, @bitCast(modal.Show(if (opts.owner) |p| @ptrFromInt(p) else null)))) {
         0 => {},
         0x800704C7 => return error.UserCancelled,
         else => |other| return hresultToError(@bitCast(other)).err,
@@ -360,7 +360,7 @@ pub fn save(allocator: std.mem.Allocator, opts: FileSaveDialogOptions) !?[]const
     if (hresult != 0) return hresultToError(hresult).err;
 
     const modal: *IModalWindow = @ptrCast(file_save_dialog);
-    switch (@as(u32, @bitCast(modal.Show(null)))) {
+    switch (@as(u32, @bitCast(modal.Show(if (opts.owner) |p| @ptrFromInt(p) else null)))) {
         0 => {},
         0x800704C7 => return error.UserCancelled,
         else => |other| return hresultToError(@bitCast(other)).err,
@@ -396,7 +396,7 @@ pub fn color(options: ColorOptions) !?Color {
 
     var cc: CHOOSECOLORA = std.mem.zeroes(CHOOSECOLORA);
     cc.lStructSize = @sizeOf(CHOOSECOLORA);
-    cc.hwndOwner = @ptrCast(@alignCast(options.owner));
+    cc.hwndOwner = if (options.owner) |p| @ptrFromInt(p) else null;
     cc.lpCustColors = @ptrCast(@alignCast(custom_colors[0..].ptr));
     cc.rgbResult = @bitCast(options.initial);
     cc.Flags = @bitCast(CHOOSECOLOR_FLAGS { .RGBINIT = 1, .FULLOPEN = 1 });
@@ -447,7 +447,7 @@ pub fn font(allocator: std.mem.Allocator, options: FontOptions) !?Font {
     cf.lStructSize = @sizeOf(CHOOSEFONTA);
     cf.lpLogFont = &lf;
     cf.Flags = .{ .SCREENFONTS = 1, .EFFECTS = 1, .INITTOLOGFONTSTRUCT = 1, .USESTYLE = 1 };
-    cf.hwndOwner = @ptrCast(@alignCast(options.owner));
+    cf.hwndOwner = if (options.owner) |p| @ptrFromInt(p) else null;
     cf.lpszStyle = style.ptr;
     cf.rgbColors = @bitCast(options.color);
     cf.iPointSize = options.point_size;

@@ -4,19 +4,31 @@ const std = @import("std");
 
 const Rect = @import("../root.zig").Rect;
 
+const dnd = @import("../drag_drop.zig");
+const dnd_win = @import("drag_drop.zig");
+
 const _menu = @import("../menu.zig");
 const MenuInfo = _menu.Info;
 const MenuItem = _menu.Item;
 const MenuCheckable = _menu.Checkable;
 const MenuAction = _menu.Action;
 
-const win32 = @import("windows").win32;
+const windows = @import("windows");
+const win32 = windows.win32;
+
+const UISettings = windows.UI.ViewManagement.UISettings;
+const TypedEventHandler = windows.Foundation.TypedEventHandler;
+const IInspectable = windows.Foundation.IInspectable;
+const EventRegistrationToken = windows.Foundation.EventRegistrationToken;
+
+const ole = win32.system.ole;
 const foundation = win32.foundation;
 const windows_and_messaging = win32.ui.windows_and_messaging;
 const keyboard_and_mouse = win32.ui.input.keyboard_and_mouse;
 const library_loader = win32.system.library_loader;
 const gdi = win32.graphics.gdi;
 const zig = win32.zig;
+const shell = win32.ui.shell;
 const dwm = win32.graphics.dwm;
 
 const util = @import("util.zig");
@@ -30,17 +42,34 @@ const CursorType = @import("../cursor.zig").CursorType;
 const Win = @import("../window.zig");
 const EventLoop = @import("../event.zig").EventLoop;
 
+const DestroyIcon = windows_and_messaging.DestroyIcon;
+const DestroyCursor = windows_and_messaging.DestroyCursor;
+const DestroyMenu = windows_and_messaging.DestroyMenu;
+
+const Shell_NotifyIconW = shell.Shell_NotifyIconW;
+const NIM_ADD = shell.NIM_ADD;
+const NIM_MODIFY = shell.NIM_MODIFY;
+const NIM_DELETE = shell.NIM_DELETE;
+const NIM_SETVERSION = shell.NIM_SETVERSION;
+const NOTIFYICON_VERSION_4 = shell.NOTIFYICON_VERSION_4;
+
+const NOTIFYICONDATAW = shell.NOTIFYICONDATAW;
+const HICON = windows_and_messaging.HICON;
+const HCURSOR = windows_and_messaging.HCURSOR;
+const HWND = foundation.HWND;
 const HMENU = windows_and_messaging.HMENU;
+
+const ID_TRAY = 1001;
 
 const Icon = union(enum) {
     icon: IconType,
-    custom: [:0]const u16,
+    custom: HICON,
 };
 
 const Cursor = union(enum) {
     icon: CursorType,
     custom: struct {
-        path: [:0]const u16,
+        handle: HCURSOR,
         width: i32,
         height: i32,
     },
@@ -135,7 +164,7 @@ pub const MenuContext = struct {
     pub fn appendMenu(self: *@This(), items: []const MenuItem) !void {
         for (items) |item| {
             switch (item) {
-                .seperator_item => try self.appendSeperator(),
+                .seperator => try self.appendSeperator(),
                 .action_item => |action| try self.appendAction(action),
                 .toggle_item => |toggle| try self.appendToggle(toggle),
                 .radio_group_item => |group| try self.appendRadioGroup(group),
@@ -156,8 +185,11 @@ pub const MenuContext = struct {
 
 title: [:0]const u16,
 class: [:0]const u16,
+
+// TODO: Destroy the custom icon and cursor
 icon: Icon,
 cursor: Cursor,
+
 theme: Win.Theme,
 current_theme: Win.Theme,
 
@@ -165,7 +197,15 @@ handle: foundation.HWND,
 instance: ?foundation.HINSTANCE,
 
 menus: std.ArrayListUnmanaged(HMENU) = .empty,
-itemToMenu: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
+item_to_menubar: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
+
+system_tray: ?struct {
+    tip: [:0]const u16,
+    popup: ?HMENU = null,
+    onclick: ?SystemTrayOnClick = null,
+} = null,
+systray_menus: std.ArrayListUnmanaged(HMENU) = .empty,
+item_to_systray: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
 
 fullscreen: ?struct {
     client: util.RECT,
@@ -173,6 +213,15 @@ fullscreen: ?struct {
     ex_style: windows_and_messaging.WINDOW_EX_STYLE,
     state: windows_and_messaging.SHOW_WINDOW_CMD,
 } = null,
+
+drag_drop: ?dnd.DropTarget = null,
+drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
+
+ui_settings: *UISettings = undefined,
+theme_change_handler: struct {
+    instance: *TypedEventHandler(UISettings, IInspectable),
+    handle: EventRegistrationToken,
+} = undefined,
 
 pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     var buf: [4]u8 = undefined;
@@ -264,41 +313,39 @@ pub fn init(
         @ptrCast(event_loop), // WM_CREATE lpParam
     ) orelse return error.SystemCreateWindow;
 
-    // Set dark title bar
-    var value: foundation.BOOL = undefined;
+    const uis = try UISettings.init();
+    errdefer uis.deinit();
+
+    var value: foundation.BOOL = zig.TRUE;
     var current_theme: Win.Theme = .dark;
     switch (options.theme) {
-        .dark => value = zig.TRUE,
         .light => {
             value = zig.FALSE;
             current_theme = .light;
         },
-        .system => if (util.isLightTheme() catch false) {
+        .system => if (util.isLight(try uis.GetColorValue(.Foreground))) {
             current_theme = .light;
             value = zig.FALSE;
-        } else {
-            value = zig.TRUE;
-        },
+        } else {},
+        else => {},
     }
 
     _ = dwm.DwmSetWindowAttribute(hwnd, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
     _ = windows_and_messaging.ShowWindow(hwnd, windows_and_messaging.SW_SHOWDEFAULT);
+
+    const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, win);
+    errdefer cvc_handler.deinit();
+    const cvc_handle = try uis.addColorValuesChanged(cvc_handler);
 
     // Attempt to bring window to the top if it is rendered below other windows
     _ = windows_and_messaging.SetWindowPos(hwnd, null, 0, 0, 0, 0, .{ .NOMOVE = 1, .NOSIZE = 1 });
     _ = windows_and_messaging.SetForegroundWindow(hwnd);
     _ = windows_and_messaging.BringWindowToTop(hwnd);
 
-    win.* = .{
-        .title = title,
-        .class = class,
-        .icon = .{ .icon = .default },
-        .cursor = .{ .icon = .default },
-        .theme = options.theme,
-        .current_theme = current_theme,
-        .handle = hwnd,
-        .instance = instance,
-    };
+    win.* = .{ .title = title, .class = class, .icon = .{ .icon = .default }, .cursor = .{ .icon = .default }, .theme = options.theme, .current_theme = current_theme, .handle = hwnd, .instance = instance, .ui_settings = uis, .theme_change_handler = .{
+        .instance = cvc_handler,
+        .handle = cvc_handle,
+    } };
 
     try win.setCursor(allocator, options.cursor);
     try win.setIcon(allocator, options.icon);
@@ -308,6 +355,29 @@ pub fn init(
 
 pub fn deinit(self: *@This()) void {
     windows_and_messaging.DestroyWindow(self.handle);
+
+    // Revoke and free drag and drop target handler
+    if (self.drag_drop_handler) |h| {
+        _ = ole.RevokeDragDrop(self.handle);
+        h.deinit();
+    }
+
+    // Destroy allocated icon handle
+    if (self.icon == .custom) {
+        _ = DestroyIcon(self.icon.custom);
+    }
+
+    // Destroy allocated cursor handle
+    if (self.cursor == .custom) {
+        _ = DestroyCursor(self.cursor.custom.handle);
+    }
+
+    // Remove listener for color change in ui settings
+    _ = self.ui_settings.removeColorValuesChanged(self.theme_change_handler.handle);
+    self.theme_change_handler.instance.deinit();
+    self.ui_settings.deinit();
+
+    // Free allocated menu bar memory
     for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
 }
 
@@ -359,7 +429,7 @@ pub fn setTitle(self: *@This(), allocator: std.mem.Allocator, title: []const u8)
 pub fn setIcon(self: *@This(), allocator: std.mem.Allocator, new_icon: ico.Icon) !void {
     // Free old icon memory
     switch (self.icon) {
-        .custom => |custom| allocator.free(custom),
+        .custom => |handle| _ = DestroyIcon(handle),
         else => {},
     }
 
@@ -367,32 +437,65 @@ pub fn setIcon(self: *@This(), allocator: std.mem.Allocator, new_icon: ico.Icon)
     switch (new_icon) {
         .icon => |i| self.icon = .{ .icon = i },
         .custom => |c| {
-            self.icon = .{ .custom = try util.utf8ToUtf16Alloc(allocator, c) };
+            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c);
+            defer allocator.free(path);
+
+            self.icon = .{
+                .custom = @ptrCast(windows_and_messaging.LoadImageW(
+                    null,
+                    path.ptr,
+                    windows_and_messaging.IMAGE_ICON,
+                    0,
+                    0,
+                    windows_and_messaging.IMAGE_FLAGS{
+                        .DEFAULTSIZE = 1,
+                        .LOADFROMFILE = 1,
+                        .SHARED = 1,
+                        .LOADTRANSPARENT = 1,
+                    },
+                )),
+            };
         },
     }
 
-    const hIcon: usize = @intFromPtr(getHIcon(self.icon));
+    const hIcon = getHIcon(self.icon);
 
     // Send message to window to now render new icon
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_SMALL,
-        @intCast(hIcon),
+        @intCast(@as(usize, @intFromPtr(hIcon))),
     );
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_BIG,
-        @intCast(hIcon),
+        @intCast(@as(usize, @intFromPtr(hIcon))),
     );
+
+    // Update system tray to use new icon
+    if (self.system_tray) |tray| {
+        var nid = std.mem.zeroes(NOTIFYICONDATAW);
+        nid.cbSize = @sizeOf(NOTIFYICONDATAW);
+        nid.hWnd = self.handle;
+        nid.uID = ID_TRAY;
+        nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
+        nid.hIcon = hIcon;
+
+        const tip_len = @min(tray.tip.len, nid.szTip.len);
+        @memcpy(nid.szTip[0..tip_len], tray.tip[0..tip_len]);
+        nid.szTip[tip_len] = 0;
+
+        _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+    }
 }
 
 /// Set window cursor
 pub fn setCursor(self: *@This(), allocator: std.mem.Allocator, new_cursor: csr.Cursor) !void {
     // Free old cursor memory
     switch (self.cursor) {
-        .custom => |c| allocator.free(c.path),
+        .custom => |c| _ = DestroyCursor(c.handle),
         else => {},
     }
 
@@ -400,11 +503,26 @@ pub fn setCursor(self: *@This(), allocator: std.mem.Allocator, new_cursor: csr.C
     switch (new_cursor) {
         .icon => |i| self.cursor = .{ .icon = i },
         .custom => |c| {
+            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
+            defer allocator.free(path);
+
             self.cursor = .{
                 .custom = .{
-                    .path = try util.utf8ToUtf16Alloc(allocator, c.path),
                     .width = c.width,
                     .height = c.height,
+                    .handle = @ptrCast(windows_and_messaging.LoadImageW(
+                        null,
+                        path.ptr,
+                        windows_and_messaging.IMAGE_ICON,
+                        c.width,
+                        c.height,
+                        windows_and_messaging.IMAGE_FLAGS{
+                            .DEFAULTSIZE = 1,
+                            .LOADFROMFILE = 1,
+                            .SHARED = 1,
+                            .LOADTRANSPARENT = 1,
+                        },
+                    )),
                 },
             };
         },
@@ -448,7 +566,6 @@ pub fn setCapture(self: *@This(), state: bool) void {
     }
 }
 
-
 /// Get whether the window is currently in fullscreen
 pub fn getFullScreen(self: *const @This()) bool {
     return self.fullscreen != null;
@@ -475,12 +592,7 @@ pub fn setFullScreen(self: *@This(), state: bool) !void {
         placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
         _ = windows_and_messaging.GetWindowPlacement(self.handle, &placement);
 
-        self.fullscreen = .{
-            .client = rect,
-            .style = style,
-            .ex_style = ex_style,
-            .state = placement.showCmd
-        };
+        self.fullscreen = .{ .client = rect, .style = style, .ex_style = ex_style, .state = placement.showCmd };
 
         style.THICKFRAME = 0;
         style.DLGFRAME = 0;
@@ -571,33 +683,27 @@ pub fn setCurrentTheme(self: *@This(), theme: Win.Theme) void {
             self.current_theme = .dark;
             _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
         },
-        .system => if (util.isLightTheme() catch false) {
-            self.current_theme = .light;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
-        } else {
-            self.current_theme = .dark;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
-        },
+        .system => if (self.ui_settings.GetColorValue(.Foreground)) |color| {
+            if (util.isLight(color)) {
+                self.current_theme = .light;
+                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
+            } else {
+                self.current_theme = .dark;
+                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
+            }
+        } else |_| {},
     }
-}
-
-pub fn getCurrentTheme(self: *@This()) Win.Theme {
-    return self.current_theme;
-}
-
-pub fn getTheme(self: *@This()) Win.Theme {
-    return self.theme;
 }
 
 pub fn setMenu(self: *@This(), allocator: std.mem.Allocator, new_menu: ?[]const MenuItem) !void {
     for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
-    for (self.itemToMenu.values()) |v| switch (v.payload) {
+    for (self.item_to_menubar.values()) |v| switch (v.payload) {
         .toggle => |t| allocator.free(t.label),
         .action => |a| allocator.free(a.label),
         .radio => |r| allocator.free(r.label),
     };
     self.menus.clearAndFree(allocator);
-    self.itemToMenu.clearAndFree(allocator);
+    self.item_to_menubar.clearAndFree(allocator);
 
     var rootMenu: ?HMENU = null;
     if (new_menu) |userMenu| {
@@ -610,7 +716,7 @@ pub fn setMenu(self: *@This(), allocator: std.mem.Allocator, new_menu: ?[]const 
                 .allocator = allocator,
                 .current = rootMenu.?,
                 .menus = &self.menus,
-                .itemToMenu = &self.itemToMenu,
+                .itemToMenu = &self.item_to_menubar,
                 .count = &count,
             };
 
@@ -625,7 +731,173 @@ pub fn setMenu(self: *@This(), allocator: std.mem.Allocator, new_menu: ?[]const 
     _ = windows_and_messaging.DrawMenuBar(self.handle);
 }
 
-const ImmersiveColorSet: [:0]const u8 = "ImmersiveColorSet\x00";
+pub fn getCurrentTheme(self: *@This()) Win.Theme {
+    return self.current_theme;
+}
+
+pub fn getTheme(self: *@This()) Win.Theme {
+    return self.theme;
+}
+
+pub fn getHCursor(cursor: Cursor) ?windows_and_messaging.HCURSOR {
+    return switch (cursor) {
+        .icon => |i| windows_and_messaging.LoadCursorW(null, cursorToResource(i)),
+        .custom => |c| c.handle,
+    };
+}
+
+pub fn showSystemTray(self: *@This()) u32 {
+    if (self.system_tray) |tray| {
+        if (tray.popup) |popup| {
+            var pt: win32.foundation.POINT = undefined;
+            _ = windows_and_messaging.GetCursorPos(&pt);
+
+            _ = windows_and_messaging.SetForegroundWindow(self.handle);
+            const selected = windows_and_messaging.TrackPopupMenu(
+                popup,
+                .{ .RIGHTBUTTON = 1, .RETURNCMD = 1 },
+                pt.x,
+                pt.y,
+                0,
+                self.handle,
+                null, 
+            );
+            _ = windows_and_messaging.PostMessageW(self.handle, windows_and_messaging.WM_NULL, 0, 0);
+            return @as(u32, @bitCast(selected));
+        }
+    }
+    return 0;
+}
+pub fn systemTrayOnClick(self: *const @This(), event_loop: *EventLoop, window: *Win) void {
+    if (self.system_tray) |tray| {
+        if (tray.onclick) |onclick| {
+            onclick(event_loop, window);
+        }
+    }
+}
+
+const SystemTrayOnClick = *const fn(event_loop: *EventLoop, window: *Win) void;
+pub fn setSystemTray(self: *@This(), allocator: std.mem.Allocator, tip: []const u8, onclick: ?SystemTrayOnClick, new_menu: ?[]const MenuItem) !void {
+    if (new_menu) |new| {
+        if (self.system_tray) |*tray| {
+            allocator.free(tray.tip);
+            // TODO: Release other allocated resources
+
+            var nid = std.mem.zeroes(NOTIFYICONDATAW);
+            nid.cbSize = @sizeOf(NOTIFYICONDATAW);
+            nid.hWnd = self.handle;
+            nid.uID = ID_TRAY;
+            nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
+
+            const tip_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tip);
+            self.system_tray.?.tip = tip_w;
+
+            const tip_len = @min(tip_w.len, nid.szTip.len);
+            @memcpy(nid.szTip[0..tip_len], tip_w[0..tip_len]);
+            nid.szTip[tip_len] = 0;
+
+            _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+        } else {
+            var nid = std.mem.zeroes(NOTIFYICONDATAW);
+            nid.cbSize = @sizeOf(NOTIFYICONDATAW);
+            nid.hWnd = self.handle;
+            nid.uID = ID_TRAY;
+            nid.uCallbackMessage = util.WM_TRAYICON;
+            nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
+            nid.hIcon = getHIcon(self.icon);
+
+            const tip_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tip);
+            self.system_tray = .{ .tip = tip_w };
+
+            const tip_len = @min(tip_w.len, nid.szTip.len);
+            @memcpy(nid.szTip[0..tip_len], tip_w[0..tip_len]);
+            nid.szTip[tip_len] = 0;
+
+            _ = Shell_NotifyIconW(NIM_ADD, &nid);
+            nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+            _ = Shell_NotifyIconW(NIM_SETVERSION, &nid);
+        }
+
+        self.system_tray.?.onclick = onclick;
+
+        for (self.systray_menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
+        for (self.item_to_systray.values()) |v| switch (v.payload) {
+            .toggle => |t| allocator.free(t.label),
+            .action => |a| allocator.free(a.label),
+            .radio => |r| allocator.free(r.label),
+        };
+        self.menus.clearAndFree(allocator);
+        self.item_to_menubar.clearAndFree(allocator);
+
+        var root_menu: ?HMENU = undefined;
+        if (new.len > 0) {
+            root_menu = windows_and_messaging.CreatePopupMenu().?;
+            self.system_tray.?.popup = root_menu;
+            try self.menus.append(allocator, root_menu.?);
+
+            var count: usize = 0;
+            var context = MenuContext{
+                .allocator = allocator,
+                .current = root_menu.?,
+                .menus = &self.systray_menus,
+                .itemToMenu = &self.item_to_systray,
+                .count = &count,
+            };
+
+            try context.appendMenu(new);
+        }
+    } else if (self.system_tray) |tray| {
+        allocator.free(tray.tip);
+
+        var nid = std.mem.zeroes(NOTIFYICONDATAW);
+        nid.cbSize = @sizeOf(NOTIFYICONDATAW);
+        nid.hWnd = self.handle;
+        nid.uID = ID_TRAY;
+        _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+    }
+}
+
+pub fn setDragDrop(self: *@This(), allocator: std.mem.Allocator, context: ?dnd.DropTarget.Context) !void {
+    if (self.drag_drop_handler) |handler| {
+        handler.deinit();
+        self.drag_drop = null;
+        const hr = ole.RevokeDragDrop(self.handle);
+        if (hr != 0) return windows.core.hresultToError(hr).err;
+        ole.OleUninitialize();
+    }
+
+    if (context) |ctx| {
+        var hr = ole.OleInitialize(null);
+        if (hr != 0) return windows.core.hresultToError(hr).err;
+
+        self.drag_drop = dnd.DropTarget.init(allocator, ctx);
+        self.drag_drop_handler = try dnd_win.DropTargetHandler.init(self.handle, &self.drag_drop.?);
+        errdefer self.drag_drop_handler.?.deinit();
+
+        hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
+        if (hr != 0) return windows.core.hresultToError(hr).err;
+    }
+}
+
+fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
+    return switch (icon) {
+        .icon => |i| windows_and_messaging.LoadIconW(null, iconToResource(i)),
+        .custom => |c| c,
+    };
+}
+
+fn show(hwnd: ?foundation.HWND, state: Win.Show) void {
+    if (hwnd) |h| {
+        _ = windows_and_messaging.ShowWindow(h, switch (state) {
+            .maximize => windows_and_messaging.SW_SHOWMAXIMIZED,
+            .minimize => windows_and_messaging.SW_SHOWMINIMIZED,
+            .restore => windows_and_messaging.SW_RESTORE,
+            else => return,
+        });
+        _ = gdi.UpdateWindow(h);
+    }
+}
+
 fn wndProc(
     hwnd: foundation.HWND,
     uMsg: u32,
@@ -672,52 +944,10 @@ fn wndProc(
     return 0;
 }
 
-pub fn getHCursor(cursor: Cursor) ?windows_and_messaging.HCURSOR {
-    return switch (cursor) {
-        .icon => |i| windows_and_messaging.LoadCursorW(null, cursorToResource(i)),
-        .custom => |c| @ptrCast(windows_and_messaging.LoadImageW(
-            null,
-            c.path.ptr,
-            windows_and_messaging.IMAGE_ICON,
-            c.width,
-            c.height,
-            windows_and_messaging.IMAGE_FLAGS{
-                .DEFAULTSIZE = 1,
-                .LOADFROMFILE = 1,
-                .SHARED = 1,
-                .LOADTRANSPARENT = 1,
-            },
-        )),
-    };
-}
+fn handleThemeChange(state: ?*anyopaque, settings: *UISettings, _: *IInspectable) void {
+    const window: *@This() = @ptrCast(@alignCast(state));
 
-fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
-    return switch (icon) {
-        .icon => |i| windows_and_messaging.LoadIconW(null, iconToResource(i)),
-        .custom => |c| @ptrCast(windows_and_messaging.LoadImageW(
-            null,
-            c.ptr,
-            windows_and_messaging.IMAGE_ICON,
-            0,
-            0,
-            windows_and_messaging.IMAGE_FLAGS{
-                .DEFAULTSIZE = 1,
-                .LOADFROMFILE = 1,
-                .SHARED = 1,
-                .LOADTRANSPARENT = 1,
-            },
-        )),
-    };
-}
-
-fn show(hwnd: ?foundation.HWND, state: Win.Show) void {
-    if (hwnd) |h| {
-        _ = windows_and_messaging.ShowWindow(h, switch (state) {
-            .maximize => windows_and_messaging.SW_SHOWMAXIMIZED,
-            .minimize => windows_and_messaging.SW_SHOWMINIMIZED,
-            .restore => windows_and_messaging.SW_RESTORE,
-            else => return,
-        });
-        _ = gdi.UpdateWindow(h);
-    }
+    if (settings.GetColorValue(.Foreground)) |color| {
+        window.setCurrentTheme(if (util.isLight(color)) .light else .dark);
+    } else |_| {}
 }

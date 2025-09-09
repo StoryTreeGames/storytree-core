@@ -15,6 +15,7 @@ const examples = [_]Example{
     .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
     .{ .name = "notification", .path = EXAMPLES ++ "/notification.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
+    .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
 };
 
 pub fn build(b: *std.Build) !void {

@@ -126,6 +126,8 @@ pub const Event = union(enum) {
     mouse_scroll: ScrollEvent,
     /// Menu item event
     menu: MenuEvent,
+    /// SysTray Menu item event
+    system_tray: MenuEvent,
     theme: enum { light, dark },
 };
 
@@ -280,7 +282,7 @@ pub const EventLoop = struct {
     pub fn handleEvent(self: *@This(), args: anytype) bool {
         const winId = impl.parseWindowId(args);
         if (self.windows.get(winId)) |win| {
-            const event = impl.parseEvent(win, args);
+            const event = impl.parseEvent(self, win, args);
             if (event) |e| {
                 self.queue.append(self.arena.allocator(), .{ winId, e }) catch return false;
                 return true;

@@ -25,13 +25,11 @@ pub const Action = struct {
 };
 
 pub const Item = union(enum) {
-    seperator_item: void,
+    seperator: void,
     action_item: Action,
     toggle_item: Checkable,
     menu_item: Menu,
     radio_group_item: []const Checkable,
-
-    pub const seperator: @This() = .seperator_item;
 
     pub fn action(identifier: []const u8, label: []const u8) @This() {
         return .{

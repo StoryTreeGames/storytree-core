@@ -68,12 +68,13 @@ pub const MessageOptions = struct {
     title: ?[]const u8 = null,
     message: ?[]const u8 = null,
     icon: ?Icon = null,
+    owner: ?usize = null,
 };
 
 pub const FileOpenDialogOptions = struct {
-    /// The HWND of the window that the dialog will be owned by. If not provided the dialog will be
+    /// The handle of the window that the dialog will be owned by. If not provided the dialog will be
     /// an independent top-level window.
-    owner: ?*anyopaque = null,
+    owner: ?usize = null,
     /// The text displayed in the title bar of the dialog box
     title: []const u8 = "",
     /// The path to the folder that is always selected when a dialog is opened, regardless of
@@ -99,7 +100,7 @@ pub const FileOpenDialogOptions = struct {
 pub const FileSaveDialogOptions = struct {
     /// The HWND of the window that the dialog will be owned by. If not provided the dialog will be
     /// an independent top-level window.
-    owner: ?*anyopaque = null,
+    owner: ?usize = null,
     /// The text displayed in the title bar of the dialog box
     title: []const u8 = "",
     /// The path to the folder that is always selected when a dialog is opened, regardless of
@@ -118,13 +119,13 @@ pub const FileSaveDialogOptions = struct {
 };
 
 pub const ColorOptions = struct {
-    owner: ?*anyopaque = null,
+    owner: ?usize = null,
     initial: Color = .{ .red = 200, .green = 100, .blue = 100 },
     custom: ?*[16]Color = null,
 };
 
 pub const FontOptions = struct {
-    owner: ?*anyopaque = null,
+    owner: ?usize = null,
     color: Color = .{},
     face: []const u8 = "Arial",
     style: []const u8 = "Regular",

@@ -7,6 +7,7 @@ pub const event = @import("event.zig");
 pub const dialog = @import("dialog.zig");
 pub const menu = @import("menu.zig");
 pub const notification = @import("notification.zig");
+pub const drag_drop = @import("drag_drop.zig");
 
 pub fn Point(By: type) type {
     return struct {

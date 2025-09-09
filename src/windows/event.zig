@@ -12,6 +12,7 @@ const event = @import("../event.zig");
 const input = @import("input.zig");
 const util = @import("./util.zig");
 
+const EventLoop = event.EventLoop;
 const Window = @import("../window.zig");
 const Modifiers = event.Modifiers;
 const Event = event.Event;
@@ -92,32 +93,12 @@ pub fn parseWindowId(args: EventArgs) usize {
     return @intFromPtr(args[0]);
 }
 
-const ImmersiveColorSet: [:0]const u8 = "ImmersiveColorSet\x00";
 var resize: ?util.RECT = null;
-pub fn parseEvent(win: *Window, args: EventArgs) ?Event {
+pub fn parseEvent(ev: *EventLoop, win: *Window, args: EventArgs) ?Event {
     const hwnd: foundation.HWND, const message: u32, const wparam: usize, const lparam: isize = args;
     _ = hwnd;
 
     switch (message) {
-        windows_and_messaging.WM_SETTINGCHANGE => {
-            if (win.getTheme() == .system) {
-                const name: [*:0]const u16 = @ptrFromInt(@as(usize, @bitCast(lparam)));
-
-                const isImmersiveColorSet = for (0..18) |i| {
-                    if (@as(u8, @intCast(name[i])) != ImmersiveColorSet[i]) break false;
-                } else true;
-
-                if (isImmersiveColorSet) {
-                    if (util.isLightTheme()) |isLight| {
-                        if (isLight != win.getCurrentTheme().isLight()) {
-                            win.impl.setCurrentTheme(if (isLight) .light else .dark);
-                            return .{ .theme = if (win.getCurrentTheme() == .light) .light else .dark };
-                        }
-                    } else |_| {}
-                }
-            }
-            return null;
-        },
         // Request to close the window
         windows_and_messaging.WM_CLOSE => {
             return Event.close;
@@ -129,16 +110,35 @@ pub fn parseEvent(win: *Window, args: EventArgs) ?Event {
             // Allow for resize cursor to be drawn if cursor is at correct position
             // return windows_and_messaging.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
+        util.WM_TRAYICON => {
+            const mouse: u32 = @bitCast(@as(i32, @intCast((@as(i16, @truncate(lparam))))));
+            if (mouse == windows_and_messaging.WM_CONTEXTMENU or mouse == windows_and_messaging.WM_RBUTTONUP) {
+                const selected = win.impl.showSystemTray();
+                const menu_item = win.impl.item_to_systray.getPtr(selected);
+                if (menu_item) |info| {
+                    return Event{
+                        .system_tray = .{
+                            .id = selected,
+                            .item = info,
+                        }
+                    };
+                }
+            } else if (mouse == windows_and_messaging.WM_LBUTTONUP) {
+                win.impl.systemTrayOnClick(ev, win);
+            }
+        },
         windows_and_messaging.WM_COMMAND => {
             const wmId: u16 = @truncate(wparam);
             const wmEvent: u16 = @truncate(wparam >> 16);
             if (wmEvent == 0) {
-                const menu_info = win.impl.itemToMenu.getPtr(@intCast(wmId));
+                const menu_info = win.impl.item_to_menubar.getPtr(@intCast(wmId));
                 if (menu_info) |info| {
-                    return Event{ .menu = .{
-                        .id = @intCast(wmId),
-                        .item = info,
-                    } };
+                    return Event{
+                        .menu = .{
+                            .id = @intCast(wmId),
+                            .item = info,
+                        },
+                    };
                 }
             }
         },
@@ -164,16 +164,9 @@ pub fn parseEvent(win: *Window, args: EventArgs) ?Event {
             keyboard[@intFromEnum(keyboard_and_mouse.VK_RMENU)] = 0;
 
             var buffer: [3:0]u16 = [_:0]u16{0} ** 3;
-            const result = keyboard_and_mouse.ToUnicodeEx(
-                virtual_key,
-                scan_code,
-                &keyboard,
-                &buffer,
-                3,
+            const result = keyboard_and_mouse.ToUnicodeEx(virtual_key, scan_code, &keyboard, &buffer, 3,
                 // Set it to not modify keyboard state. Windows 1607 and above
-                0b100,
-                keyboard_and_mouse.GetKeyboardLayout(0)
-            );
+                0b100, keyboard_and_mouse.GetKeyboardLayout(0));
 
             // TODO: If dead key then store for later and combine with next char/key input
             if (result == 0) {
@@ -286,7 +279,7 @@ pub fn parseEvent(win: *Window, args: EventArgs) ?Event {
 
             const width = @as(u16, @truncate(@as(usize, @bitCast(lparam))));
             const height = @as(u16, @intCast(lparam >> 16));
-            return Event {
+            return Event{
                 .resize = .{
                     .width = width,
                     .height = height,

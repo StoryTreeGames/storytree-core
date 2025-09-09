@@ -55,19 +55,19 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Menu
     - [x] Repaint
     - [x] Theme Change
-    - [-] Drag Drop
+    - [x] Drag Drop
   - [-] Query
     - [x] Keys
     - [x] Mouse
     - [ ] Gamepad
   - [ ] Audio
   - [x] Notification
-  - [ ] System Tray
-  - [ ] Custom Context Menu
+  - [x] System Tray
   - [x] Menu
+  - [ ] Custom Context Menu
   - [ ] App ID and Start Menu for things like systray and notifications
     - Can already assign App ID to the current process
-  - [ ] Owner Drawn menu bar for system theme colors?
+  - [ ] Owner Drawn menu so it uses system theme colors?
     - This can be difficult and error prone. Plain white background with black text should work for now.
 
 - [ ] Wayland
