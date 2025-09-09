@@ -2,8 +2,6 @@ const std = @import("std");
 const Tag = std.Target.Os.Tag;
 const builtin = @import("builtin");
 
-const Scanner = @import("wayland").Scanner;
-
 const NAME = "storytree-core";
 const EXAMPLES = "examples";
 
@@ -28,26 +26,44 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    var wayland: ?*std.Build.Module = null;
-    var scanner: ?*Scanner = null;
-    if (builtin.target.os.tag == .linux) {
-        scanner = Scanner.create(b, .{});
-        wayland = b.createModule(.{ .root_source_file = scanner.?.result });
-        scanner.?.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
-        scanner.?.generate("wl_compositor", 1);
-        scanner.?.generate("wl_shm", 1);
-        scanner.?.generate("xdg_wm_base", 1);
-    }
 
-    const windows_zig = b.dependency("windows", .{});
+    var deps: @import("std").ArrayList(ModuleMap) = .empty;
+    defer deps.deinit(b.allocator);
+
     const uuid = b.dependency("uuid", .{});
     const wgpu_native = b.dependency("wgpu_native_zig", .{});
 
+    try deps.append(b.allocator, .{ NAME, module });
+    try deps.append(b.allocator, .{ "uuid", uuid.module("uuid") });
+    try deps.append(b.allocator, .{ "wgpu", wgpu_native.module("wgpu") });
+
     module.addImport("uuid", uuid.module("uuid"));
-    if (builtin.target.os.tag == .windows) {
-        // Note: To build exe so a console window doesn't appear
-        // Add this to any exe build: `exe.subsystem = .Windows;`
-        module.addImport("windows", windows_zig.module("windows"));
+    switch (builtin.target.os.tag) {
+        .windows => {
+            const windows_zig = b.lazyDependency("windows", .{});
+
+            // Note: To build exe so a console window doesn't appear
+            // Add this to any exe build: `exe.subsystem = .Windows;`
+            module.addImport("windows", windows_zig.?.module("windows"));
+            try deps.append(b.allocator, .{ "windows", windows_zig.?.module("windows") });
+        },
+        .linux => {
+            const Scanner = @import("wayland").Scanner;
+
+            module.linkSystemLibrary("wayland-client", .{});
+
+            const scanner = Scanner.create(b, .{});
+            const wayland = b.createModule(.{ .root_source_file = scanner.result });
+
+            scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+            scanner.generate("wl_compositor", 1);
+            scanner.generate("wl_shm", 1);
+            scanner.generate("xdg_wm_base", 1);
+
+            module.addImport("wayland", wayland);
+            try deps.append(b.allocator, .{ "wayland", wayland });
+        },
+        else => {}
     }
 
     const test_module = b.createModule(.{
@@ -68,13 +84,7 @@ pub fn build(b: *std.Build) !void {
             target,
             optimize,
             example,
-            &.{
-                .{ NAME, module, null },
-                .{ "wayland", wayland, null },
-                .{ "uuid", uuid.module("uuid"), null },
-                .{ "wgpu", wgpu_native.module("wgpu"), null },
-                .{ "windows", windows_zig.module("windows"), .windows },
-            },
+            deps.items,
             builtin.target.os.tag == .linux,
             &.{
                 .{ "wayland-client", .linux },
@@ -83,7 +93,7 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-const ModuleMap = std.meta.Tuple(&[_]type{ []const u8, ?*std.Build.Module, ?std.Target.Os.Tag });
+const ModuleMap = std.meta.Tuple(&[_]type{ []const u8, ?*std.Build.Module });
 const Example = struct {
     name: []const u8,
     path: []const u8,
@@ -106,9 +116,7 @@ pub fn addExample(
 
     for (modules) |module| {
         if (module[1]) |mod| {
-            if (module[2] == null or builtin.target.os.tag == module[2]) {
-                exe_module.addImport(module[0], mod);
-            }
+            exe_module.addImport(module[0], mod);
         }
     }
 

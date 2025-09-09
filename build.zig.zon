@@ -19,6 +19,7 @@
         .windows = .{
             .url = "git+https://github.com/Tired-Fox/windows-zig?ref=main#148c5f3db96b438cc9c5af0d1aff919f5f690ebb",
             .hash = "windows-0.0.0-kXMVSl_5GAJ6SLok0kDRdAddYL3TjHPFQHTNSjP4uZw1",
+            .lazy = true,
         },
     },
     .paths = .{

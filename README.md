@@ -22,6 +22,8 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 ## TODO
 
+- [ ] Move notification module to individual repo
+
 - [-] Windows
   - [x] Basic window creation
     - [x] Blank Window
@@ -60,10 +62,9 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Keys
     - [x] Mouse
     - [ ] Gamepad
-  - [ ] Audio
-  - [x] Notification
   - [x] System Tray
   - [x] Menu
+  - [x] Notification
   - [ ] Custom Context Menu
   - [ ] App ID and Start Menu for things like systray and notifications
     - Can already assign App ID to the current process
@@ -107,50 +108,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
-  - [ ] Audio
-  - [ ] Notifications
-  - [ ] System Tray
-  - [ ] Custom Context Menu
-  - [ ] Title Bar
-  - [ ] Menu
-
-- [ ] X11
-  - [ ] Basic window creation
-    - [ ] Size
-    - [ ] Pos
-    - [ ] Icon
-    - [ ] Cursor
-    - [ ] Title
-    - [ ] Resizable
-    - [ ] Theme
-    - [ ] Show (min/max/normal)
-  - [ ] Window manipulation
-    - [ ] Minimize
-    - [ ] Maxamize
-    - [ ] Restore 
-    - [ ] Update Title
-    - [ ] Update Icon
-    - [ ] Update Cursor
-    - [ ] Show/Hide Cursor
-    - [ ] Set Cursor Pos
-    - [ ] Change Window Theme
-    - [ ] Set Cursor Capture
-    - [ ] Set and Update Menu
-    - [ ] Fullscreen
-  - [ ] Event listening and handling
-    - [ ] Close 
-    - [ ] Keyboard
-    - [ ] Mouse
-    - [ ] Resize
-    - [ ] Menu 
-    - [ ] Repaint
-    - [ ] Theme Change
-    - [ ] Drag Drop
-  - [ ] Query
-    - [ ] Keys
-    - [ ] Mouse
-    - [ ] Gamepad, controller, joystick, etc.
-  - [ ] Audio
   - [ ] Notifications
   - [ ] System Tray
   - [ ] Custom Context Menu
@@ -193,7 +150,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
-  - [ ] Audio
   - [ ] Notifications
   - [ ] System Tray
   - [ ] Custom Context Menu
