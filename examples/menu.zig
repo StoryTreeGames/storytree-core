@@ -75,7 +75,7 @@ pub fn main() !void {
             .action("file::open", "Open"),
             .action("file::save", "Save"),
             .action("file::save-as", "Save As"),
-            .seperator,
+            .separator,
             .toggle("file::watch", "Watch", app.watch),
         }),
         .action("quit", "Quit"),

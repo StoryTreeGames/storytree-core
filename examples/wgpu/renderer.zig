@@ -1,3 +1,4 @@
+const std = @import("std");
 const wgpu = @import("wgpu");
 const core = @import("storytree-core");
 
@@ -37,7 +38,7 @@ pub fn create(window: *core.Window) !Renderer {
     log.info("fetching adapter", .{});
     const adapter_request = instance.requestAdapterSync(&wgpu.RequestAdapterOptions{
         .compatible_surface = self.surface,
-    });
+    }, std.time.ns_per_ms);
     const adapter = switch (adapter_request.status) {
         .success => adapter_request.adapter.?,
         else => return error.AdapterRequestFailed

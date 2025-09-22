@@ -25,7 +25,7 @@ pub const Action = struct {
 };
 
 pub const Item = union(enum) {
-    seperator: void,
+    separator: void,
     action_item: Action,
     toggle_item: Checkable,
     menu_item: Menu,

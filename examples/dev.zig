@@ -144,8 +144,7 @@ pub fn main() !void {
     allocator.free(title);
 
     while (event_loop.isActive()) {
-        if (event_loop.poll()) |data| {
-            try state.handleEvent(&event_loop, data.window, data.event);
-        }
+        const data = event_loop.next();
+        try state.handleEvent(&event_loop, data.window, data.event);
     }
 }

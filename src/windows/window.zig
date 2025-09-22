@@ -92,9 +92,9 @@ pub const MenuContext = struct {
         };
     }
 
-    pub fn appendSeperator(self: *@This()) !void {
+    pub fn appendSeparator(self: *@This()) !void {
         if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_SEPARATOR, 0, null) == 0) {
-            return error.AppendMenuSeperator;
+            return error.AppendMenuSeparator;
         }
     }
 
@@ -164,7 +164,7 @@ pub const MenuContext = struct {
     pub fn appendMenu(self: *@This(), items: []const MenuItem) !void {
         for (items) |item| {
             switch (item) {
-                .seperator => try self.appendSeperator(),
+                .separator => try self.appendSeparator(),
                 .action_item => |action| try self.appendAction(action),
                 .toggle_item => |toggle| try self.appendToggle(toggle),
                 .radio_group_item => |group| try self.appendRadioGroup(group),
@@ -294,8 +294,8 @@ pub fn init(
         .DLGFRAME = 1,
         .BORDER = 1,
         // Show window after it is created
-        .MINIMIZE = @intFromBool(options.show == .minimize),
-        .MAXIMIZE = @intFromBool(options.show == .maximize),
+        // .MINIMIZE = @intFromBool(options.show == .minimize),
+        // .MAXIMIZE = @intFromBool(options.show == .maximize),
     };
 
     const hwnd = windows_and_messaging.CreateWindowExW(
@@ -331,24 +331,43 @@ pub fn init(
     }
 
     _ = dwm.DwmSetWindowAttribute(hwnd, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
-    _ = windows_and_messaging.ShowWindow(hwnd, windows_and_messaging.SW_SHOWDEFAULT);
+    _ = windows_and_messaging.ShowWindow(
+        hwnd,
+        switch (options.show) {
+            .hidden => windows_and_messaging.SW_HIDE,
+            .minimize => windows_and_messaging.SW_MINIMIZE,
+            .maximize => windows_and_messaging.SW_MAXIMIZE,
+            else => windows_and_messaging.SW_SHOWDEFAULT,
+        }
+    );
+    _ = gdi.UpdateWindow(hwnd);
 
     const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, win);
     errdefer cvc_handler.deinit();
     const cvc_handle = try uis.addColorValuesChanged(cvc_handler);
 
-    // Attempt to bring window to the top if it is rendered below other windows
-    _ = windows_and_messaging.SetWindowPos(hwnd, null, 0, 0, 0, 0, .{ .NOMOVE = 1, .NOSIZE = 1 });
-    _ = windows_and_messaging.SetForegroundWindow(hwnd);
-    _ = windows_and_messaging.BringWindowToTop(hwnd);
-
-    win.* = .{ .title = title, .class = class, .icon = .{ .icon = .default }, .cursor = .{ .icon = .default }, .theme = options.theme, .current_theme = current_theme, .handle = hwnd, .instance = instance, .ui_settings = uis, .theme_change_handler = .{
-        .instance = cvc_handler,
-        .handle = cvc_handle,
-    } };
+    win.* = .{
+        .title = title,
+        .class = class,
+        .icon = .{ .icon = .default },
+        .cursor = .{ .icon = .default },
+        .theme = options.theme,
+        .current_theme = current_theme,
+        .handle = hwnd,
+        .instance = instance,
+        .ui_settings = uis,
+        .theme_change_handler = .{
+            .instance = cvc_handler,
+            .handle = cvc_handle,
+        },
+    };
 
     try win.setCursor(allocator, options.cursor);
     try win.setIcon(allocator, options.icon);
+
+    if (options.show == .fullscreen) {
+        win.setFullScreen(true) catch {};
+    }
 
     return win;
 }
@@ -390,19 +409,48 @@ pub fn destroy(self: *const @This()) void {
     _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
 }
 
+pub fn bringToTop(self: *const @This()) void {
+    // Attempt to bring window to the top if it is rendered below other windows
+    _ = windows_and_messaging.SetWindowPos(self.handle, null, 0, 0, 0, 0, .{ .NOMOVE = 1, .NOSIZE = 1 });
+    _ = windows_and_messaging.SetForegroundWindow(self.handle);
+    _ = windows_and_messaging.BringWindowToTop(self.handle);
+}
+
+pub fn visibility(self: *const @This()) Win.Visibility {
+    var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
+    placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
+
+    if (windows_and_messaging.GetWindowPlacement(self.handle, &placement) != 0) {
+        if (windows_and_messaging.IsWindowVisible(self.handle) == 0) return .hidden;
+        if (placement.showCmd == windows_and_messaging.SW_MINIMIZE) return .minimize;
+        if (placement.showCmd == windows_and_messaging.SW_MAXIMIZE) return .maximize;
+        if (placement.showCmd == windows_and_messaging.SW_SHOWDEFAULT) return .restore;
+    }
+
+    return .restore;
+}
+
+pub fn show(self: *const @This()) void {
+    showWindow(self.handle, .restore);
+}
+
+pub fn hide(self: *const @This()) void {
+    showWindow(self.handle, .hidden);
+}
+
 /// Minimize the window
 pub fn minimize(self: *const @This()) void {
-    show(self.handle, .minimize);
+    showWindow(self.handle, .minimize);
 }
 
 /// Maximize the window
 pub fn maximize(self: *const @This()) void {
-    show(self.handle, .maximize);
+    showWindow(self.handle, .maximize);
 }
 
 /// Restore the window to its default windowed state
 pub fn restore(self: *const @This()) void {
-    show(self.handle, .restore);
+    showWindow(self.handle, .restore);
 }
 
 /// Get the windows current rect (bounding box)
@@ -760,7 +808,7 @@ pub fn showSystemTray(self: *@This()) u32 {
                 pt.y,
                 0,
                 self.handle,
-                null, 
+                null,
             );
             _ = windows_and_messaging.PostMessageW(self.handle, windows_and_messaging.WM_NULL, 0, 0);
             return @as(u32, @bitCast(selected));
@@ -776,7 +824,7 @@ pub fn systemTrayOnClick(self: *const @This(), event_loop: *EventLoop, window: *
     }
 }
 
-const SystemTrayOnClick = *const fn(event_loop: *EventLoop, window: *Win) void;
+const SystemTrayOnClick = *const fn (event_loop: *EventLoop, window: *Win) void;
 pub fn setSystemTray(self: *@This(), allocator: std.mem.Allocator, tip: []const u8, onclick: ?SystemTrayOnClick, new_menu: ?[]const MenuItem) !void {
     if (new_menu) |new| {
         if (self.system_tray) |*tray| {
@@ -875,7 +923,7 @@ pub fn setDragDrop(self: *@This(), allocator: std.mem.Allocator, context: ?dnd.D
         errdefer self.drag_drop_handler.?.deinit();
 
         hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
-        if (hr != 0) return windows.core.hresultToError(hr).err;
+        if (hr != 0) return windows.core.hresultTVisibilityor(hr).err;
     }
 }
 
@@ -886,12 +934,13 @@ fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
     };
 }
 
-fn show(hwnd: ?foundation.HWND, state: Win.Show) void {
+fn showWindow(hwnd: ?foundation.HWND, state: Win.Visibility) void {
     if (hwnd) |h| {
         _ = windows_and_messaging.ShowWindow(h, switch (state) {
             .maximize => windows_and_messaging.SW_SHOWMAXIMIZED,
             .minimize => windows_and_messaging.SW_SHOWMINIMIZED,
             .restore => windows_and_messaging.SW_RESTORE,
+            .hidden => windows_and_messaging.SW_HIDE,
             else => return,
         });
         _ = gdi.UpdateWindow(h);

@@ -275,7 +275,12 @@ pub const EventLoop = struct {
     /// Blocks until polling returns the next event
     pub fn next(self: *@This()) WindowEvent {
         while (true) {
-            if (self.poll()) |event| return event;
+            if (self.queue.pop(self.arena.allocator())) |data| {
+                if (self.windows.get(data[0])) |win| {
+                    return .{ .window = win, .event = data[1] };
+                }
+            }
+            _ = impl.next();
         }
     }
 

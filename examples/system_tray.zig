@@ -24,6 +24,12 @@ pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: Event) !void {
         .system_tray => |e| {
             switch (e.item.id) {
                 id("quit") => event_loop.closeWindow(window.id()),
+                id("toggle-window") => {
+                    switch (window.visibility()) {
+                        .restore, .fullscreen, .maximize => window.hide(),
+                        else => window.restore(),
+                    }
+                },
                 else => {}
             }
         },
@@ -49,12 +55,24 @@ pub fn main() !void {
     var event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
 
-    const window = try event_loop.createWindow(.{ .title = "Drag & Drop", .width = 800, .height = 600, .icon = .{ .custom = "C:\\Users\\zboehm\\projects\\zig\\storytree-core\\examples\\assets\\images\\icon.ico" } });
-    try window.setSystemTray("Some Tip", systrayOnClick, &.{.action("quit", "Quit")});
+    const path = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/images/icon.ico");
+    defer allocator.free(path);
+
+    const window = try event_loop.createWindow(.{
+        .icon = .{ .custom = path },
+        // System tray requires a window. However we can hide it so that only the
+        // system tray icon is visible.
+        .show = .hidden
+    });
+
+    try window.setSystemTray("Some Tip", systrayOnClick, &.{
+        .action("toggle-window", "Toggle Window"),
+        .separator,
+        .action("quit", "Quit"),
+    });
 
     while (event_loop.isActive()) {
-        if (event_loop.poll()) |data| {
-            try handleEvent(&event_loop, data.window, data.event);
-        }
+        const window_event = event_loop.next();
+        try handleEvent(&event_loop, window_event.window, window_event.event);
     }
 }

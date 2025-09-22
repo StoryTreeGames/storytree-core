@@ -22,6 +22,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 ## TODO
 
+- [ ] Move dialog module to individual repo
 - [ ] Move notification module to individual repo
 
 - [-] Windows
@@ -64,7 +65,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Gamepad
   - [x] System Tray
   - [x] Menu
-  - [x] Notification
   - [ ] Custom Context Menu
   - [ ] App ID and Start Menu for things like systray and notifications
     - Can already assign App ID to the current process
@@ -108,7 +108,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
-  - [ ] Notifications
   - [ ] System Tray
   - [ ] Custom Context Menu
   - [ ] Title Bar
@@ -150,7 +149,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
-  - [ ] Notifications
   - [ ] System Tray
   - [ ] Custom Context Menu
   - [ ] Title Bar

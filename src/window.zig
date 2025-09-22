@@ -25,7 +25,7 @@ pub const Theme = enum {
     }
 };
 
-pub const Show = enum { maximize, minimize, restore, fullscreen };
+pub const Visibility = enum { maximize, minimize, restore, fullscreen, hidden };
 
 pub const Options = struct {
     title: []const u8 = "",
@@ -37,7 +37,7 @@ pub const Options = struct {
     cursor: Cursor = .Default,
     resizable: bool = true,
     theme: Theme = .system,
-    show: Show = .restore,
+    show: Visibility = .restore,
 };
 
 arena: std.heap.ArenaAllocator,
@@ -63,6 +63,20 @@ pub fn deinit(self: *@This()) void {
 
 pub fn id(self: *const @This()) usize {
     return self.impl.id();
+}
+
+pub fn visibility(self: *const @This()) Visibility {
+    return self.impl.visibility();
+}
+
+/// Show the window
+pub fn show(self: *const @This()) void {
+    self.impl.show();
+}
+
+/// Hide the window
+pub fn hide(self: *const @This()) void {
+    self.impl.hide();
 }
 
 /// Minimize the window

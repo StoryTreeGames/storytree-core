@@ -41,6 +41,20 @@ pub fn poll() bool {
     return false;
 }
 
+pub fn next() void {
+    var message: windows_and_messaging.MSG = undefined;
+    if (windows_and_messaging.GetMessageW(&message, null, 0, 0) != 0) {
+        _ = windows_and_messaging.TranslateMessage(&message);
+        _ = windows_and_messaging.DispatchMessageW(&message);
+    }
+
+    // DRAIN PHASE: flush any follow-up messages triggered by the handler
+    while (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
+        _ = windows_and_messaging.TranslateMessage(&message);
+        _ = windows_and_messaging.DispatchMessageW(&message);
+    }
+}
+
 pub fn setAppId(allocator: std.mem.Allocator, id: []const u8) !void {
     const wid: [:0]const u16 = try std.unicode.utf8ToUtf16LeAllocZ(allocator, id);
     defer allocator.free(wid);

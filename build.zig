@@ -26,26 +26,25 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-
-    var deps: @import("std").ArrayList(ModuleMap) = .empty;
+    var deps: @import("std").ArrayList(std.Build.Module.Import) = .empty;
     defer deps.deinit(b.allocator);
 
     const uuid = b.dependency("uuid", .{});
     const wgpu_native = b.dependency("wgpu_native_zig", .{});
 
-    try deps.append(b.allocator, .{ NAME, module });
-    try deps.append(b.allocator, .{ "uuid", uuid.module("uuid") });
-    try deps.append(b.allocator, .{ "wgpu", wgpu_native.module("wgpu") });
+    try deps.append(b.allocator, .{ .name = NAME, .module = module });
+    try deps.append(b.allocator, .{ .name = "uuid", .module = uuid.module("uuid") });
+    try deps.append(b.allocator, .{ .name = "wgpu", .module = wgpu_native.module("wgpu") });
 
     module.addImport("uuid", uuid.module("uuid"));
     switch (builtin.target.os.tag) {
         .windows => {
-            const windows_zig = b.lazyDependency("windows", .{});
+            const windows_zig = b.dependency("windows", .{});
 
             // Note: To build exe so a console window doesn't appear
             // Add this to any exe build: `exe.subsystem = .Windows;`
-            module.addImport("windows", windows_zig.?.module("windows"));
-            try deps.append(b.allocator, .{ "windows", windows_zig.?.module("windows") });
+            module.addImport("windows", windows_zig.module("windows"));
+            try deps.append(b.allocator, .{ .name = "windows", .module = windows_zig.module("windows") });
         },
         .linux => {
             const Scanner = @import("wayland").Scanner;
@@ -61,9 +60,9 @@ pub fn build(b: *std.Build) !void {
             scanner.generate("xdg_wm_base", 1);
 
             module.addImport("wayland", wayland);
-            try deps.append(b.allocator, .{ "wayland", wayland });
+            try deps.append(b.allocator, .{ .name = "wayland", .module = wayland });
         },
-        else => {}
+        else => {},
     }
 
     const test_module = b.createModule(.{
@@ -93,7 +92,6 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-const ModuleMap = std.meta.Tuple(&[_]type{ []const u8, ?*std.Build.Module });
 const Example = struct {
     name: []const u8,
     path: []const u8,
@@ -104,23 +102,16 @@ pub fn addExample(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     comptime example: Example,
-    modules: []const ModuleMap,
+    imports: []const std.Build.Module.Import,
     link_lib_c: bool,
     system_libraries: []const std.meta.Tuple(&.{ []const u8, Tag }),
 ) void {
-    const exe_module = b.createModule(.{
+    const exe = b.addExecutable(.{ .name = example.name, .root_module = b.createModule(.{
         .root_source_file = b.path(example.path),
         .target = target,
         .optimize = optimize,
-    });
-
-    for (modules) |module| {
-        if (module[1]) |mod| {
-            exe_module.addImport(module[0], mod);
-        }
-    }
-
-    const exe = b.addExecutable(.{ .name = example.name, .root_module = exe_module });
+        .imports = imports,
+    }) });
 
     if (link_lib_c) exe.linkLibC();
     for (system_libraries) |library| {
