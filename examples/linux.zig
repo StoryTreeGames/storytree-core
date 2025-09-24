@@ -262,7 +262,7 @@ const Seat = struct {
                 //     surface_x: common.Fixed,
                 //     surface_y: common.Fixed,
                 // }
-                std.debug.print("(x: {d}, y: {d})\n", .{ motion.surface_x, motion.surface_y });
+                std.debug.print("(x: {d}, y: {d})\n", .{ motion.surface_x.toInt(), motion.surface_y.toInt() });
             },
             .axis => |axis| {
                 // axis: struct {
@@ -270,7 +270,7 @@ const Seat = struct {
                 //     axis: Axis,
                 //     value: common.Fixed,
                 // },
-                std.debug.print("{s} scroll: {d}\n", .{ if (axis.axis == .vertical_scroll) "vertical" else "horizontal", axis.value.toDouble() });
+                std.debug.print("{s} scroll: {d}\n", .{ if (axis.axis == .vertical_scroll) "vertical" else "horizontal", axis.value.toInt() });
             },
             .button => |button| {
                 // button: struct {
