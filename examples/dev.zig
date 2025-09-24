@@ -22,7 +22,7 @@ const State = struct {
                 }
             },
             .key_input => |key_event| {
-                std.debug.print("{any}\n", .{ key_event.key });
+                std.debug.print("{any}\n", .{key_event.key});
                 if (key_event.matches(.f11, .{})) {
                     window.setFullScreen(!self.fullscreen);
                     self.fullscreen = !self.fullscreen;
@@ -140,7 +140,12 @@ pub fn main() !void {
     var state: State = .{ .allocator = allocator };
 
     const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.icon)});
-    _ = try event_loop.createWindow(.{ .title = title, .width = 800, .height = 600, .icon = .{ .custom = "examples\\assets\\icon.ico" } });
+    _ = try event_loop.createWindow(.{
+        .title = title,
+        .width = 800,
+        .height = 600,
+        .icon = .{ .custom = "examples\\assets\\icon.ico" },
+    });
     allocator.free(title);
 
     while (event_loop.isActive()) {

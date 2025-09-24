@@ -31,16 +31,23 @@ const VK_RSHIFT = keyboard_and_mouse.VK_RSHIFT;
 
 const PRESSED: u8 = 0b10000000;
 
-pub fn poll() bool {
+/// Poll for events draining all queued window events
+///
+/// This will translate all events and append them to the event loops queue.
+///
+/// The choice to drain all currently queued events comes from how linux (wayland) dispatches
+/// all queued events regardless of blocking or not.
+pub fn poll() void {
     var message: windows_and_messaging.MSG = undefined;
-    if (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
+    while (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
         _ = windows_and_messaging.TranslateMessage(&message);
         _ = windows_and_messaging.DispatchMessageW(&message);
-        return true;
     }
-    return false;
 }
 
+/// Block the event loop until the next event draining all queued window events
+///
+/// This will translate all events and append them to the event loops queue.
 pub fn next() void {
     var message: windows_and_messaging.MSG = undefined;
     if (windows_and_messaging.GetMessageW(&message, null, 0, 0) != 0) {
