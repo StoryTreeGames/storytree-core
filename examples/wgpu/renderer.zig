@@ -24,15 +24,19 @@ pub fn create(window: *core.Window) !Renderer {
     defer instance.release();
 
     log.info("creating surface", .{});
+    const handles = window.handles();
     self.surface = instance.createSurface(&switch (@import("builtin").os.tag) {
-        // On windows, the inner value of the window is the windows only data type that
-        // contains the HINSTANCE and HWND types that are to be used here.
         .windows => wgpu.surfaceDescriptorFromWindowsHWND(.{
             .label = "HWND_surface",
-            .hinstance = window.impl.instance.?,
-            .hwnd = window.impl.handle,
+            .hinstance = handles.parent,
+            .hwnd = handles.target,
         }),
-        else => @compileError("platform not supported")
+        .linux => wgpu.surfaceDescriptorFromWaylandSurface(.{
+            .label = "HWND_surface",
+            .display = handles.parent,
+            .surface = handles.target,
+        }),
+        else => @compileError("platform not supported"),
     }) orelse return error.CouldNotCreateSurface;
 
     log.info("fetching adapter", .{});
@@ -41,15 +45,15 @@ pub fn create(window: *core.Window) !Renderer {
     }, std.time.ns_per_ms);
     const adapter = switch (adapter_request.status) {
         .success => adapter_request.adapter.?,
-        else => return error.AdapterRequestFailed
+        else => return error.AdapterRequestFailed,
     };
     defer adapter.release();
 
     log.info("fetching device", .{});
-    const device_request = adapter.requestDeviceSync(&wgpu.DeviceDescriptor {
+    const device_request = adapter.requestDeviceSync(&wgpu.DeviceDescriptor{
         .required_limits = null,
     });
-    self.device = switch(device_request.status) {
+    self.device = switch (device_request.status) {
         .success => device_request.device.?,
         else => return error.DeviceRequestFailed,
     };
@@ -67,7 +71,7 @@ pub fn create(window: *core.Window) !Renderer {
     self.height = rect.height;
     self.resizeWidth = rect.width;
     self.resizeHeight = rect.height;
-    self.surface_config = wgpu.SurfaceConfiguration {
+    self.surface_config = wgpu.SurfaceConfiguration{
         .width = rect.width,
         .height = rect.height,
         .format = surface_capabilities.formats[0],
@@ -84,16 +88,16 @@ pub fn create(window: *core.Window) !Renderer {
     })) orelse return error.CouldNotCreateShader;
     defer shader_module.release();
 
-    const color_targets = &[_]wgpu.ColorTargetState {
-        wgpu.ColorTargetState {
+    const color_targets = &[_]wgpu.ColorTargetState{
+        wgpu.ColorTargetState{
             .format = self.surface_config.format,
-            .blend = &wgpu.BlendState {
-                .color = wgpu.BlendComponent {
+            .blend = &wgpu.BlendState{
+                .color = wgpu.BlendComponent{
                     .operation = wgpu.BlendOperation.add,
                     .src_factor = wgpu.BlendFactor.src_alpha,
                     .dst_factor = wgpu.BlendFactor.one_minus_src_alpha,
                 },
-                .alpha = wgpu.BlendComponent {
+                .alpha = wgpu.BlendComponent{
                     .operation = wgpu.BlendOperation.add,
                     .src_factor = wgpu.BlendFactor.zero,
                     .dst_factor = wgpu.BlendFactor.one,
@@ -103,14 +107,14 @@ pub fn create(window: *core.Window) !Renderer {
     };
 
     log.info("create pipeline", .{});
-    self.pipeline = self.device.createRenderPipeline(&wgpu.RenderPipelineDescriptor {
-        .vertex = wgpu.VertexState {
+    self.pipeline = self.device.createRenderPipeline(&wgpu.RenderPipelineDescriptor{
+        .vertex = wgpu.VertexState{
             .module = shader_module,
             .entry_point = "vs_main",
         },
-        .primitive = wgpu.PrimitiveState {},
-        .multisample = wgpu.MultisampleState {},
-        .fragment = &wgpu.FragmentState {
+        .primitive = wgpu.PrimitiveState{},
+        .multisample = wgpu.MultisampleState{},
+        .fragment = &wgpu.FragmentState{
             .module = shader_module,
             .entry_point = "fs_main",
             .target_count = color_targets.len,
@@ -144,7 +148,7 @@ pub fn render(self: *Renderer) !void {
         return error.SurfaceTextureNotSuccessfulStatus; // TODO: find a better name for that
     }
 
-    const target_view = surface_texture.texture.createView(&wgpu.TextureViewDescriptor {
+    const target_view = surface_texture.texture.createView(&wgpu.TextureViewDescriptor{
         .label = "surface texture view",
         .format = surface_texture.texture.getFormat(),
         .dimension = wgpu.ViewDimension.@"2d",
@@ -152,18 +156,16 @@ pub fn render(self: *Renderer) !void {
         .array_layer_count = 1,
     }) orelse return error.CouldNotCreateTextureView;
 
-    const encoder = self.device.createCommandEncoder(&wgpu.CommandEncoderDescriptor {
-        .label = "render command encoder"
-    }) orelse return error.CouldNotCreateCommandEncoder;
+    const encoder = self.device.createCommandEncoder(&wgpu.CommandEncoderDescriptor{ .label = "render command encoder" }) orelse return error.CouldNotCreateCommandEncoder;
 
-    const render_pass_color_attachments = &[_]wgpu.ColorAttachment {
-        wgpu.ColorAttachment {
+    const render_pass_color_attachments = &[_]wgpu.ColorAttachment{
+        wgpu.ColorAttachment{
             .view = target_view,
-            .clear_value = wgpu.Color { .r = 0.62, .g = 0.83, .b = 0.64, .a = 0.0 },
+            .clear_value = wgpu.Color{ .r = 0.62, .g = 0.83, .b = 0.64, .a = 0.0 },
         },
     };
 
-    const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor {
+    const render_pass = encoder.beginRenderPass(&wgpu.RenderPassDescriptor{
         .color_attachment_count = render_pass_color_attachments.len,
         .color_attachments = render_pass_color_attachments.ptr,
     }) orelse return error.CouldNotBeginRenderPass;
@@ -173,10 +175,10 @@ pub fn render(self: *Renderer) !void {
     render_pass.end();
     render_pass.release();
 
-    const command_buffer = encoder.finish(&wgpu.CommandBufferDescriptor {
+    const command_buffer = encoder.finish(&wgpu.CommandBufferDescriptor{
         .label = "render command buffer",
     }) orelse return error.CouldNotFinishCommandEncoder;
-    const commands = [_] *const wgpu.CommandBuffer {
+    const commands = [_]*const wgpu.CommandBuffer{
         command_buffer,
     };
     encoder.release();

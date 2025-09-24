@@ -25,6 +25,17 @@ pub const Theme = enum {
     }
 };
 
+/// Collection of usefull handles that are usually needed
+/// for rendering libraries like WGPU, Vulkan, Metal, etc.
+pub const Handles = struct {
+    /// - Windows: HINSTANCE
+    /// - Linux: Display
+    parent: *anyopaque,
+    /// - Windows: HWND
+    /// - Linux: Surface
+    target: *anyopaque,
+};
+
 pub const Visibility = enum { maximize, minimize, restore, fullscreen, hidden };
 
 pub const Options = struct {
@@ -64,6 +75,21 @@ pub fn deinit(self: *@This()) void {
 pub fn id(self: *const @This()) usize {
     return self.impl.id();
 }
+
+/// Returns the pointers to the parent and
+/// the target
+///
+/// # Parent
+/// - Windows: HINSTANCE
+/// - Linux: Display
+///
+/// # Target
+/// - Windows: HWND
+/// - Linux: Surface
+pub fn handles(self: *const @This()) Handles {
+    return self.impl.handles();
+}
+
 
 pub fn visibility(self: *const @This()) Visibility {
     return self.impl.visibility();

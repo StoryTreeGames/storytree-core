@@ -404,6 +404,15 @@ pub fn id(self: *const @This()) usize {
     return @intFromPtr(self.handle);
 }
 
+/// Returns the pointers to the parent (HINSTANCE) and
+/// the target (HWND)
+pub fn handles(self: *const @This()) Win.Handles {
+    return .{
+        .parent = @ptrCast(self.instance.?),
+        .target = @ptrCast(self.handle),
+    };
+}
+
 pub fn destroy(self: *const @This()) void {
     _ = windows_and_messaging.DestroyWindow(self.handle);
     _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
