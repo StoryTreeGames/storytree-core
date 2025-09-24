@@ -50,14 +50,22 @@ pub fn build(b: *std.Build) !void {
             const Scanner = @import("wayland").Scanner;
 
             module.linkSystemLibrary("wayland-client", .{});
+            // TODO: Remove this in favor of https://codeberg.org/ifreund/zig-xkbcommon when
+            //        is updated to zig v0.15.1
+            module.linkSystemLibrary("xkbcommon", .{});
 
             const scanner = Scanner.create(b, .{});
             const wayland = b.createModule(.{ .root_source_file = scanner.result });
 
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+            scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
+
             scanner.generate("wl_compositor", 1);
             scanner.generate("wl_shm", 1);
             scanner.generate("xdg_wm_base", 1);
+            scanner.generate("zxdg_decoration_manager_v1", 1);
+
+            scanner.generate("wl_seat", 1);
 
             module.addImport("wayland", wayland);
             try deps.append(b.allocator, .{ .name = "wayland", .module = wayland });
