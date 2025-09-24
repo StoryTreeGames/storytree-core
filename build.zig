@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) !void {
 
             scanner.generate("wl_compositor", 1);
             scanner.generate("wl_shm", 1);
+            scanner.generate("wl_output", 1);
             scanner.generate("xdg_wm_base", 1);
             scanner.generate("zxdg_decoration_manager_v1", 1);
 

@@ -34,35 +34,45 @@ fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, context: *
     }
 }
 
-fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, state: *AppState) void {
+fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, window: *Window) void {
     switch (event) {
         .configure => |configure| {
-            if (state.configured and state.dirty) {
-                if (Buffer.create(state.allocator, state.shm, state.width, state.height)) |new_buf| {
+            xdg_surface.ackConfigure(configure.serial);
+            window.surface.commit();
+
+            if (window.configured and window.dirty) {
+                if (Buffer.create(window.allocator, window.shm, window.width, window.height)) |new_buf| {
                     new_buf.repaint(0xFF000000);
-                    new_buf.present(state.surface);
-                    state.buffer.destroy();
-                    state.buffer = new_buf;
-                    state.dirty = false;
+                    new_buf.present(window.surface);
+                    window.buffer.destroy();
+                    window.buffer = new_buf;
+                    window.dirty = false;
                 } else |_| {}
             } else {
-                state.configured = true;
+                window.configured = true;
             }
-
-            xdg_surface.ackConfigure(configure.serial);
-            state.surface.commit();
         },
     }
 }
 
-fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, state: *AppState) void {
+fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, window: *Window) void {
     switch (event) {
         .configure => |cfg| {
-            if (cfg.width != 0) state.width = cfg.width;
-            if (cfg.height != 0) state.height = cfg.height;
-            state.dirty = true;
+            if (cfg.width != 0) window.width = cfg.width;
+            if (cfg.height != 0) window.height = cfg.height;
+            window.state = .{};
+            for (cfg.states.slice(xdg.Toplevel.State)) |state| {
+                switch (state) {
+                    .fullscreen => window.state.fullscreen = true,
+                    .maximized => window.state.maximized = true,
+                    .activated => window.state.activated = true,
+                    .resizing => window.state.resizing = true,
+                    else => {},
+                }
+            }
+            window.dirty = true;
         },
-        .close => state.running = false,
+        .close => window.running = false,
     }
 }
 
@@ -72,8 +82,6 @@ pub fn main() anyerror!void {
     const allocator = gpa.allocator();
 
     const display = try wl.Display.connect(null);
-    defer display.disconnect();
-
     const registry = try display.getRegistry();
 
     var context = Context{
@@ -94,7 +102,6 @@ pub fn main() anyerror!void {
     const deco_mng = context.deco_mng;
 
     const buffer = try Buffer.create(allocator, shm, 640, 480);
-    defer buffer.destroy();
 
     buffer.repaint(0xFF000000);
 
@@ -108,12 +115,7 @@ pub fn main() anyerror!void {
     const xdg_toplevel = try xdg_surface.getToplevel();
     defer xdg_toplevel.destroy();
 
-    var seat = Seat{ .seat = wl_seat, .top_level = xdg_toplevel };
-    defer seat.deinit();
-
-    wl_seat.setListener(*Seat, Seat.capabilities, &seat);
-
-    var state = AppState{
+    var window = Window{
         .allocator = allocator,
         .width = 640,
         .height = 480,
@@ -121,10 +123,15 @@ pub fn main() anyerror!void {
         .display = display,
         .surface = surface,
         .buffer = buffer,
+        .top_level = xdg_toplevel,
+        .seat = Seat{ .seat = wl_seat },
     };
+    defer window.deinit();
 
-    xdg_surface.setListener(*AppState, xdgSurfaceListener, &state);
-    xdg_toplevel.setListener(*AppState, xdgToplevelListener, &state);
+    wl_seat.setListener(*Window, Seat.capabilities, &window);
+
+    xdg_surface.setListener(*Window, xdgSurfaceListener, &window);
+    xdg_toplevel.setListener(*Window, xdgToplevelListener, &window);
 
     var tl_deco: ?*zxdg.ToplevelDecorationV1 = null;
     var server_deco = false;
@@ -140,7 +147,7 @@ pub fn main() anyerror!void {
     buffer.present(surface);
 
     std.debug.print("{any}\n", .{server_deco});
-    while (state.running) {
+    while (window.running) {
         // Non blocking check for events. If there are any then it flushes and dispatches all of them
         //     - This is best for loop driven applications
         //     - Carefull with this one as it is not blocking and
@@ -186,230 +193,6 @@ const Context = struct {
     wm_base: ?*xdg.WmBase,
     deco_mng: ?*zxdg.DecorationManagerV1,
     seat: ?*wl.Seat,
-};
-
-const Seat = struct {
-    seat: *wl.Seat,
-    top_level: *xdg.Toplevel,
-    wl_pointer: ?*wl.Pointer = null,
-    wl_keyboard: ?*wl.Keyboard = null,
-
-    kctx: ?*xkbcommon.xkb_context = null,
-    keymap: ?*xkbcommon.xkb_keymap = null,
-    key_state: ?*xkbcommon.xkb_state = null,
-    table: ?*xkbcommon.xkb_compose_table = null,
-    compose_state: ?*xkbcommon.xkb_compose_state = null,
-
-    pub fn deinit(self: *@This()) void {
-        if (self.key_state) |o| xkbcommon.xkb_state_unref(o);
-        if (self.keymap) |o| xkbcommon.xkb_keymap_unref(o);
-
-        if (self.compose_state) |o| xkbcommon.xkb_compose_state_unref(o);
-        if (self.table) |o| xkbcommon.xkb_compose_table_unref(o);
-
-        self.key_state = null;
-        self.keymap = null;
-        self.table = null;
-        self.compose_state = null;
-    }
-
-    pub fn capabilities(seat: *wl.Seat, event: wl.Seat.Event, state: *@This()) void {
-        switch (event) {
-            .capabilities => |c| {
-                if (c.capabilities.pointer and state.wl_pointer == null) {
-                    state.wl_pointer = seat.getPointer() catch return;
-                    state.wl_pointer.?.setListener(*@This(), pointer, state);
-                } else if (!c.capabilities.pointer and state.wl_pointer != null) {
-                    state.wl_pointer.?.destroy();
-                    state.wl_pointer = null;
-                }
-
-                if (c.capabilities.keyboard and state.wl_keyboard == null) {
-                    state.wl_keyboard = seat.getKeyboard() catch return;
-                    state.wl_keyboard.?.setListener(*@This(), keyboard, state);
-                } else if (!c.capabilities.keyboard and state.wl_keyboard != null) {
-                    state.wl_keyboard.?.destroy();
-                    state.wl_keyboard = null;
-                }
-            },
-        }
-    }
-
-    pub fn pointer(p: *wl.Pointer, event: wl.Pointer.Event, state: *@This()) void {
-        _ = .{ p, state };
-        switch (event) {
-            .enter => |enter| {
-                _ = enter;
-                std.debug.print("UNFOCUS\n", .{});
-                // struct {
-                //     serial: u32,
-                //     surface: ?*client.wl.Surface,
-                //     surface_x: common.Fixed,
-                //     surface_y: common.Fixed,
-                // }
-            },
-            .leave => |leave| {
-                _ = leave;
-                std.debug.print("FOCUS\n", .{});
-                // struct {
-                //    serial: u32,
-                //    surface: ?*client.wl.Surface,
-                // }
-            },
-            .motion => |motion| {
-                // motion: struct {
-                //     time: u32,
-                //     surface_x: common.Fixed,
-                //     surface_y: common.Fixed,
-                // }
-                std.debug.print("(x: {d}, y: {d})\n", .{ motion.surface_x.toInt(), motion.surface_y.toInt() });
-            },
-            .axis => |axis| {
-                // axis: struct {
-                //     time: u32,
-                //     axis: Axis,
-                //     value: common.Fixed,
-                // },
-                std.debug.print("{s} scroll: {d}\n", .{ if (axis.axis == .vertical_scroll) "vertical" else "horizontal", axis.value.toInt() });
-            },
-            .button => |button| {
-                // button: struct {
-                //     serial: u32,
-                //     time: u32,
-                //     button: u32,
-                //     state: ButtonState,
-                // }
-                std.debug.print("MOUSE: {s}", .{switch (button.button) {
-                    0x110 => "Left",
-                    0x111 => "Right",
-                    0x112 => "Middle",
-                    0x113 => "Side", // XBUTTON2
-                    0x114 => "Extra", // XBUTTON1
-                    0x115 => "Forward",
-                    0x116 => "Back",
-                    0x117 => "Task",
-                    else => "?",
-                }});
-                std.debug.print(" {s}\n", .{@tagName(button.state)});
-            },
-        }
-    }
-
-    pub fn keyboard(k: *wl.Keyboard, event: wl.Keyboard.Event, state: *@This()) void {
-        _ = .{ k, event, state };
-
-        switch (event) {
-            .keymap => |km| {
-                if (km.format != .xkb_v1) {
-                    std.posix.close(km.fd);
-                    return;
-                }
-                const size: usize = @intCast(km.size);
-                const map = std.posix.mmap(
-                    null,
-                    size,
-                    std.posix.PROT.READ,
-                    .{ .TYPE = .PRIVATE },
-                    km.fd,
-                    0,
-                ) catch {
-                    std.posix.close(km.fd);
-                    return;
-                };
-
-                const map_ptr: [*]const u8 = @ptrCast(map);
-                if (state.kctx == null) state.kctx = xkbcommon.xkb_context_new(xkbcommon.XKB_CONTEXT_NO_FLAGS);
-                if (state.keymap) |old| xkbcommon.xkb_keymap_unref(old);
-                if (state.key_state) |old| xkbcommon.xkb_state_unref(old);
-
-                const locale: ?[]const u8 = std.process.getEnvVarOwned(std.heap.page_allocator, "LC_ALL") catch std.process.getEnvVarOwned(std.heap.page_allocator, "LANG") catch null;
-                defer if (locale) |l| std.heap.page_allocator.free(l);
-
-                state.table = xkbcommon.xkb_compose_table_new_from_locale(state.kctx.?, if (locale) |l| l.ptr else "C", xkbcommon.XKB_COMPOSE_COMPILE_NO_FLAGS);
-                state.compose_state = xkbcommon.xkb_compose_state_new(state.table, xkbcommon.XKB_COMPOSE_STATE_NO_FLAGS);
-
-                const keymap = xkbcommon.xkb_keymap_new_from_string(
-                    state.kctx.?,
-                    map_ptr,
-                    xkbcommon.XKB_KEYMAP_FORMAT_TEXT_V1,
-                    xkbcommon.XKB_KEYMAP_COMPILE_NO_FLAGS,
-                );
-                state.keymap = keymap;
-                state.key_state = xkbcommon.xkb_state_new(keymap);
-
-                _ = std.posix.munmap(map);
-                std.posix.close(km.fd);
-            },
-            .enter => |_| {
-                // struct {
-                //    serial: u32,
-                //    surface: ?*client.wl.Surface,
-                //    keys: *common.Array,
-                // }
-                std.debug.print("FOCUS\n", .{});
-            },
-            .leave => |_| {
-                // struct {
-                //     serial: u32,
-                //     surface: ?*client.wl.Surface,
-                // }
-                std.debug.print("UNFOCUS\n", .{});
-            },
-            .key => |key| {
-                // key: struct {
-                //     serial: u32,
-                //     time: u32,
-                //     key: u32,
-                //     state: KeyState,
-                // },
-
-                if (state.key_state == null) return;
-
-                const keycode = key.key + 8;
-                const sym = xkbcommon.xkb_state_key_get_one_sym(state.key_state.?, keycode);
-
-                var buf: [4]u8 = std.mem.zeroes([4]u8);
-
-                if (state.compose_state) |cs| {
-                    _ = xkbcommon.xkb_compose_state_feed(cs, sym);
-                    switch (xkbcommon.xkb_compose_state_get_status(cs)) {
-                        xkbcommon.XKB_COMPOSE_COMPOSED => {
-                            const n = xkbcommon.xkb_compose_state_get_utf8(cs, &buf, buf.len);
-                            xkbcommon.xkb_compose_state_reset(cs);
-                            if (n > 0) {
-                                std.debug.print("typed({d}): {s}\n", .{ n, buf[0..@intCast(n)] });
-                            }
-                            return;
-                        },
-                        xkbcommon.XKB_COMPOSE_COMPOSING => {
-                            return;
-                        },
-                        xkbcommon.XKB_COMPOSE_CANCELLED => {
-                            xkbcommon.xkb_compose_state_reset(cs);
-                        },
-                        xkbcommon.XKB_COMPOSE_NOTHING => {},
-                        else => {},
-                    }
-                }
-
-                const n = xkbcommon.xkb_state_key_get_utf8(state.key_state.?, keycode, &buf, buf.len);
-                if (n > 0) {
-                    const s = buf[0..@intCast(n)];
-                    std.debug.print("typed({d}): {s}\n", .{ s.len, s });
-                } else {
-                    std.debug.print("typed: {{ {d} }}\n", .{sym});
-                }
-            },
-            // modifiers: struct {
-            //     serial: u32,
-            //     mods_depressed: u32,
-            //     mods_latched: u32,
-            //     mods_locked: u32,
-            //     group: u32,
-            // },
-            else => {},
-        }
-    }
 };
 
 const Deco = struct {
@@ -510,17 +293,308 @@ const Buffer = struct {
     }
 };
 
-const AppState = struct {
+const Seat = struct {
+    seat: *wl.Seat,
+
+    wl_pointer: ?*wl.Pointer = null,
+    wl_keyboard: ?*wl.Keyboard = null,
+
+    kctx: ?*xkbcommon.xkb_context = null,
+    keymap: ?*xkbcommon.xkb_keymap = null,
+    key_state: ?*xkbcommon.xkb_state = null,
+    table: ?*xkbcommon.xkb_compose_table = null,
+    compose_state: ?*xkbcommon.xkb_compose_state = null,
+
+    pub fn deinit(self: *@This()) void {
+        if (self.key_state) |o| xkbcommon.xkb_state_unref(o);
+        if (self.keymap) |o| xkbcommon.xkb_keymap_unref(o);
+
+        if (self.compose_state) |o| xkbcommon.xkb_compose_state_unref(o);
+        if (self.table) |o| xkbcommon.xkb_compose_table_unref(o);
+
+        self.key_state = null;
+        self.keymap = null;
+        self.table = null;
+        self.compose_state = null;
+    }
+
+    pub fn capabilities(seat: *wl.Seat, event: wl.Seat.Event, window: *Window) void {
+        switch (event) {
+            .capabilities => |c| {
+                if (c.capabilities.pointer and window.seat.wl_pointer == null) {
+                    window.seat.wl_pointer = seat.getPointer() catch return;
+                    window.seat.wl_pointer.?.setListener(*Window, pointer, window);
+                } else if (!c.capabilities.pointer and window.seat.wl_pointer != null) {
+                    window.seat.wl_pointer.?.destroy();
+                    window.seat.wl_pointer = null;
+                }
+
+                if (c.capabilities.keyboard and window.seat.wl_keyboard == null) {
+                    window.seat.wl_keyboard = seat.getKeyboard() catch return;
+                    window.seat.wl_keyboard.?.setListener(*Window, keyboard, window);
+                } else if (!c.capabilities.keyboard and window.seat.wl_keyboard != null) {
+                    window.seat.wl_keyboard.?.destroy();
+                    window.seat.wl_keyboard = null;
+                }
+            },
+        }
+    }
+
+    pub fn pointer(p: *wl.Pointer, event: wl.Pointer.Event, state: *Window) void {
+        _ = .{ p, state };
+        switch (event) {
+            .enter => |enter| {
+                _ = enter;
+                std.debug.print("UNFOCUS\n", .{});
+                // struct {
+                //     serial: u32,
+                //     surface: ?*client.wl.Surface,
+                //     surface_x: common.Fixed,
+                //     surface_y: common.Fixed,
+                // }
+            },
+            .leave => |leave| {
+                _ = leave;
+                std.debug.print("FOCUS\n", .{});
+                // struct {
+                //    serial: u32,
+                //    surface: ?*client.wl.Surface,
+                // }
+            },
+            .motion => |motion| {
+                // motion: struct {
+                //     time: u32,
+                //     surface_x: common.Fixed,
+                //     surface_y: common.Fixed,
+                // }
+                std.debug.print("(x: {d}, y: {d})\n", .{ motion.surface_x.toInt(), motion.surface_y.toInt() });
+            },
+            .axis => |axis| {
+                // axis: struct {
+                //     time: u32,
+                //     axis: Axis,
+                //     value: common.Fixed,
+                // },
+                std.debug.print("{s} scroll: {d}\n", .{ if (axis.axis == .vertical_scroll) "vertical" else "horizontal", axis.value.toInt() });
+            },
+            .button => |button| {
+                // button: struct {
+                //     serial: u32,
+                //     time: u32,
+                //     button: u32,
+                //     state: ButtonState,
+                // }
+                std.debug.print("MOUSE: {s}", .{switch (button.button) {
+                    0x110 => "Left",
+                    0x111 => "Right",
+                    0x112 => "Middle",
+                    0x113 => "Side", // XBUTTON2
+                    0x114 => "Extra", // XBUTTON1
+                    0x115 => "Forward",
+                    0x116 => "Back",
+                    0x117 => "Task",
+                    else => "?",
+                }});
+                std.debug.print(" {s}\n", .{@tagName(button.state)});
+            },
+        }
+    }
+
+    pub fn keyboard(k: *wl.Keyboard, event: wl.Keyboard.Event, window: *Window) void {
+        _ = .{ k, event, window };
+
+        switch (event) {
+            .keymap => |km| {
+                if (km.format != .xkb_v1) {
+                    std.posix.close(km.fd);
+                    return;
+                }
+                const size: usize = @intCast(km.size);
+                const map = std.posix.mmap(
+                    null,
+                    size,
+                    std.posix.PROT.READ,
+                    .{ .TYPE = .PRIVATE },
+                    km.fd,
+                    0,
+                ) catch {
+                    std.posix.close(km.fd);
+                    return;
+                };
+
+                const map_ptr: [*]const u8 = @ptrCast(map);
+                if (window.seat.kctx == null) window.seat.kctx = xkbcommon.xkb_context_new(xkbcommon.XKB_CONTEXT_NO_FLAGS);
+                if (window.seat.keymap) |old| xkbcommon.xkb_keymap_unref(old);
+                if (window.seat.key_state) |old| xkbcommon.xkb_state_unref(old);
+
+                const locale: ?[]const u8 = std.process.getEnvVarOwned(std.heap.page_allocator, "LC_ALL") catch std.process.getEnvVarOwned(std.heap.page_allocator, "LANG") catch null;
+                defer if (locale) |l| std.heap.page_allocator.free(l);
+
+                window.seat.table = xkbcommon.xkb_compose_table_new_from_locale(window.seat.kctx.?, if (locale) |l| l.ptr else "C", xkbcommon.XKB_COMPOSE_COMPILE_NO_FLAGS);
+                window.seat.compose_state = xkbcommon.xkb_compose_state_new(window.seat.table, xkbcommon.XKB_COMPOSE_STATE_NO_FLAGS);
+
+                const keymap = xkbcommon.xkb_keymap_new_from_string(
+                    window.seat.kctx.?,
+                    map_ptr,
+                    xkbcommon.XKB_KEYMAP_FORMAT_TEXT_V1,
+                    xkbcommon.XKB_KEYMAP_COMPILE_NO_FLAGS,
+                );
+                window.seat.keymap = keymap;
+                window.seat.key_state = xkbcommon.xkb_state_new(keymap);
+
+                _ = std.posix.munmap(map);
+                std.posix.close(km.fd);
+            },
+            .enter => |_| {
+                // struct {
+                //    serial: u32,
+                //    surface: ?*client.wl.Surface,
+                //    keys: *common.Array,
+                // }
+                std.debug.print("FOCUS\n", .{});
+            },
+            .leave => |_| {
+                // struct {
+                //     serial: u32,
+                //     surface: ?*client.wl.Surface,
+                // }
+                std.debug.print("UNFOCUS\n", .{});
+            },
+            .key => |key| {
+                // key: struct {
+                //     serial: u32,
+                //     time: u32,
+                //     key: u32,
+                //     state: KeyState,
+                // },
+
+                if (window.seat.key_state == null) return;
+
+                const keycode = key.key + 8;
+                const sym = xkbcommon.xkb_state_key_get_one_sym(window.seat.key_state.?, keycode);
+
+                var buf: [4]u8 = std.mem.zeroes([4]u8);
+
+                if (window.seat.compose_state) |cs| {
+                    _ = xkbcommon.xkb_compose_state_feed(cs, sym);
+                    switch (xkbcommon.xkb_compose_state_get_status(cs)) {
+                        xkbcommon.XKB_COMPOSE_COMPOSED => {
+                            const n = xkbcommon.xkb_compose_state_get_utf8(cs, &buf, buf.len);
+                            xkbcommon.xkb_compose_state_reset(cs);
+                            if (n > 0) {
+                                std.debug.print("typed({d}): {s}\n", .{ n, buf[0..@intCast(n)] });
+                            }
+                            return;
+                        },
+                        xkbcommon.XKB_COMPOSE_COMPOSING => {
+                            return;
+                        },
+                        xkbcommon.XKB_COMPOSE_CANCELLED => {
+                            xkbcommon.xkb_compose_state_reset(cs);
+                        },
+                        xkbcommon.XKB_COMPOSE_NOTHING => {},
+                        else => {},
+                    }
+                }
+
+                const n = xkbcommon.xkb_state_key_get_utf8(window.seat.key_state.?, keycode, &buf, buf.len);
+                if (n > 0) {
+                    const s = buf[0..@intCast(n)];
+                    std.debug.print("typed({d}): {s}\n", .{ s.len, s });
+                } else {
+                    if (key.state == .pressed) {
+                        if (sym == xkbcommon.XKB_KEY_Up) {
+                            if (window.state.fullscreen) window.top_level.unsetFullscreen();
+                            window.top_level.setMaximized();
+                            window.surface.commit();
+                        } else if (sym == xkbcommon.XKB_KEY_Down) {
+                            if (window.state.maximized) {
+                                window.top_level.unsetMaximized();
+                            } else if (!window.state.fullscreen) {
+                                window.top_level.setMinimized();
+                            }
+                            window.surface.commit();
+                        } else if (sym == xkbcommon.XKB_KEY_F11) {
+                            std.debug.print("F11\n", .{});
+                            if (window.state.fullscreen) {
+                                window.top_level.unsetFullscreen();
+                                std.debug.print("Exit Fullscreen\n", .{});
+                            } else {
+                                if (window.state.maximized) {
+                                    window.top_level.unsetMaximized();
+                                    window.surface.commit();
+                                }
+                                window.top_level.setFullscreen(null);
+                                std.debug.print("Enter Fullscreen\n", .{});
+                            }
+                            window.surface.commit();
+                        } else if (sym == xkbcommon.XKB_KEY_F11) {
+                            std.debug.print("F11\n", .{});
+                            if (window.state.fullscreen) {
+                                window.top_level.unsetFullscreen();
+                                std.debug.print("Exit Fullscreen\n", .{});
+                            } else {
+                                if (window.state.maximized) {
+                                    window.top_level.unsetMaximized();
+                                    window.surface.commit();
+                                }
+                                window.top_level.setFullscreen(null);
+                                std.debug.print("Enter Fullscreen\n", .{});
+                            }
+                            window.surface.commit();
+                        }
+                    }
+                    std.debug.print("typed: {{ {d} }}\n", .{sym});
+                }
+            },
+            // modifiers: struct {
+            //     serial: u32,
+            //     mods_depressed: u32,
+            //     mods_latched: u32,
+            //     mods_locked: u32,
+            //     group: u32,
+            // },
+            else => {},
+        }
+    }
+};
+
+const WindowState = packed struct(u4) {
+    maximized: bool = false,
+    fullscreen: bool = false,
+    resizing: bool = false,
+    activated: bool = false,
+};
+
+const Window = struct {
     running: bool = true,
-    configured: bool = false,
+
     allocator: std.mem.Allocator,
 
+    configured: bool = false,
     dirty: bool = false,
+
+    state: WindowState = .{},
+
     width: i32 = 0,
     height: i32 = 0,
+
+    seat: Seat,
 
     shm: *wl.Shm,
     display: *wl.Display,
     surface: *wl.Surface,
+    top_level: *xdg.Toplevel,
     buffer: *Buffer,
+
+    pub fn deinit(self: *@This()) void {
+        self.shm.destroy();
+        self.surface.destroy();
+        self.top_level.destroy();
+        self.buffer.destroy();
+
+        self.seat.deinit();
+
+        self.display.disconnect();
+    }
 };
