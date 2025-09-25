@@ -7,7 +7,7 @@ const event = core.event;
 const input = core.input;
 const drag_drop = core.drag_drop;
 
-const Window = @import("storytree-core").Window;
+const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 
@@ -42,8 +42,14 @@ fn onDrop(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, d
         std.debug.print("{s}\n", .{mime});
     }
 
-    // TODO: Virtual Files
-    if (data.contains("application/x-virtual-files")) {
+    if (data.contains("text/uri-list")) {
+        const stdout = std.fs.File.stdout();
+        var buffer: [1024]u8 = undefined;
+        var writer = stdout.writer(&buffer);
+
+        std.debug.print("[URL List]\n", .{});
+        data.streamBytes("text/uri-list", &writer.interface);
+    } else if (data.contains("application/x-virtual-files")) {
         if (data.getVirtualFiles()) |virtual_files| {
             const stdout = std.fs.File.stdout();
             var buffer: [1024]u8 = undefined;
@@ -58,13 +64,6 @@ fn onDrop(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, d
                 writer.interface.flush() catch {};
             }
         }
-    } else if (data.contains("text/uri-list")) {
-        const stdout = std.fs.File.stdout();
-        var buffer: [1024]u8 = undefined;
-        var writer = stdout.writer(&buffer);
-
-        std.debug.print("[URL List]\n", .{});
-        data.streamBytes("text/uri-list", &writer.interface);
     } else if (data.contains("text/html")) {
         const stdout = std.fs.File.stdout();
         var buffer: [1024]u8 = undefined;
@@ -107,7 +106,9 @@ pub fn main() !void {
     });
 
     while (event_loop.isActive()) {
-        const data = event_loop.next();
-        try handleEvent(&event_loop, data.window, data.event);
+        try event_loop.wait();
+        while (event_loop.pop()) |we| {
+            try handleEvent(event_loop, we.window, we.event);
+        }
     }
 }

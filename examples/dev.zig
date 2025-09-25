@@ -4,7 +4,7 @@ const core = @import("storytree-core");
 const event = core.event;
 const input = core.input;
 
-const Window = @import("storytree-core").Window;
+const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 
@@ -24,7 +24,7 @@ const State = struct {
             .key_input => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
                 if (key_event.matches(.f11, .{})) {
-                    window.setFullScreen(!self.fullscreen);
+                    try window.setFullScreen(!self.fullscreen);
                     self.fullscreen = !self.fullscreen;
                 }
 
@@ -122,7 +122,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var event_loop = try EventLoop.init(allocator);
+    const event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
 
     // Custom debug output of window
@@ -149,7 +149,9 @@ pub fn main() !void {
     allocator.free(title);
 
     while (event_loop.isActive()) {
-        const data = event_loop.next();
-        try state.handleEvent(&event_loop, data.window, data.event);
+        try event_loop.wait();
+        while (event_loop.pop()) |we| {
+            try state.handleEvent(event_loop, we.window, we.event);
+        }
     }
 }

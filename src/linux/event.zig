@@ -10,6 +10,7 @@ const Window = @import("window.zig");
 const WindowOptions = @import("../window.zig").Options;
 const EventQueue = @import("../event.zig").EventQueue;
 const Context = @import("context.zig");
+const WindowEvent = @import("../event.zig").WindowEvent;
 
 arena: std.heap.ArenaAllocator,
 
@@ -40,17 +41,20 @@ pub fn init(allocator: std.mem.Allocator) !*@This() {
 }
 
 pub fn deinit(self: *@This()) void {
+    const parent = self.arena.child_allocator;
     const allocator = self.arena.allocator();
     for (self.windows.values()) |window| {
-        window.deinit(allocator);
+        window.deinit();
     }
     self.windows.deinit(allocator);
+    self.queue.deinit();
 
     self.context.deinit();
     self.registry.destroy();
     self.display.disconnect();
 
     self.arena.deinit();
+    parent.destroy(self);
 }
 
 pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
@@ -73,7 +77,7 @@ pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
 
 pub fn closeWindow(self: *@This(), id: usize) void {
     if (self.windows.get(id)) |win| {
-        win.deinit(self.arena.allocator());
+        win.deinit();
         _ = self.windows.swapRemove(id);
     }
 }
@@ -106,4 +110,13 @@ pub fn poll(self: *@This()) !void {
     } else {
         self.display.cancelRead();
     }
+}
+
+pub fn pop(self: *@This()) ?WindowEvent {
+    while (self.queue.pop()) |data| {
+        if (self.windows.get(data[0])) |win| {
+            return .{ .window = win, .event = data[1] };
+        }
+    }
+    return null;
 }

@@ -5,7 +5,7 @@ const event = core.event;
 
 const notif = core.notification;
 
-const Window = @import("storytree-core").Window;
+const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 const id = core.menu.id;
@@ -28,20 +28,20 @@ pub const App = struct {
                     menu.toggle(self.watch);
                 },
                 id("file::open") => {
-                    _ = try core.dialog.open(arena.allocator(), .{ .filters = &.{
+                    _ = core.dialog.open(arena.allocator(), .{ .filters = &.{
                         .{ "Herb Guide (*.hgd)", "*.hgd" },
                         .{ "All types (*.*)", "*.*" },
-                    }, .title = "Open Herb Guide" });
+                    }, .title = "Open Herb Guide" }) catch {};
                 },
                 id("file::save-as") => {
-                    _ = try core.dialog.save(arena.allocator(), .{
+                    _ = core.dialog.save(arena.allocator(), .{
                         .file_name = "guide.hgd",
                         .filters = &.{
                             .{ "Herb Guide (*.hgd)", "*.hgd" },
                             .{ "All types (*.*)", "*.*" },
                         },
                         .title = "Save Herb",
-                    });
+                    }) catch {};
                 },
                 else => {},
             },
@@ -59,10 +59,11 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    _ = try notif.Notification.send(allocator, null, "storytree-core-example-notif", .{
+    var n = try notif.Notification.send(allocator, null, "storytree-core-example-notif", .{
         .title = "Test Notification",
         .body = "Test notification from storytree core",
     });
+    defer n.deinit();
 
     var app = App{ .allocator = allocator };
 
@@ -82,7 +83,9 @@ pub fn main() !void {
     });
 
     while (event_loop.isActive()) { 
-        const data = event_loop.next();
-        try app.handleEvent(&event_loop, data.window, data.event);
+        try event_loop.wait();
+        while (event_loop.pop()) |we| {
+            try app.handleEvent(event_loop, we.window, we.event);
+        }
     }
 }

@@ -77,13 +77,16 @@ pub fn getCursorPos() Point(u32) {
 
 /// Get whether the mouse button is down
 pub fn getKeyState(mouse_button: input.MouseButton) bool {
-    const value = switch(mouse_button) {
-        .left => kam.VK_LBUTTON,
-        .right => kam.VK_RBUTTON,
-        .middle => kam.VK_MBUTTON,
-        .x1 => kam.VK_XBUTTON1,
-        .x2 => kam.VK_XBUTTON2,
+    const value: u16 = switch (mouse_button) {
+        .left => @intFromEnum(kam.VK_LBUTTON),
+        .right => @intFromEnum(kam.VK_RBUTTON),
+        .middle => @intFromEnum(kam.VK_MBUTTON),
+        .x1 => @intFromEnum(kam.VK_XBUTTON1),
+        .x2 => @intFromEnum(kam.VK_XBUTTON2),
+        .unknown => 0,
     };
 
-    return (@as(u16, @bitCast(kam.GetAsyncKeyState(@intFromEnum(value)))) & 0x8000) != 0;
+    if (value == 0) return false;
+
+    return (@as(u16, @bitCast(kam.GetAsyncKeyState(value))) & 0x8000) != 0;
 }

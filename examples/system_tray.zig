@@ -14,7 +14,7 @@ const menu = core.menu;
 
 const id = menu.id;
 
-const Window = @import("storytree-core").Window;
+const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 
@@ -72,7 +72,9 @@ pub fn main() !void {
     });
 
     while (event_loop.isActive()) {
-        const window_event = event_loop.next();
-        try handleEvent(&event_loop, window_event.window, window_event.event);
+        try event_loop.wait();
+        while (event_loop.pop()) |we| {
+            try handleEvent(event_loop, we.window, we.event);
+        }
     }
 }

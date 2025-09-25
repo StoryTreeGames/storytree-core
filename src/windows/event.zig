@@ -12,11 +12,12 @@ const event = @import("../event.zig");
 const input = @import("input.zig");
 const util = @import("./util.zig");
 
-const EventQueue = event.EventQueue;
 const Window = @import("window.zig");
 const WindowOptions = @import("../window.zig").Options;
 const Modifiers = event.Modifiers;
+const EventQueue = event.EventQueue;
 const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 const EventHandler = event.EventHandler;
 
 const VIRTUAL_KEY = keyboard_and_mouse.VIRTUAL_KEY;
@@ -38,7 +39,7 @@ arena: std.heap.ArenaAllocator,
 windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
 queue: EventQueue,
 
-pub fn init(allocator: std.mem.Allocator) !@This() {
+pub fn init(allocator: std.mem.Allocator) !*@This() {
     const self = try allocator.create(@This());
     errdefer allocator.destroy(self);
 
@@ -50,14 +51,15 @@ pub fn init(allocator: std.mem.Allocator) !@This() {
 }
 
 pub fn deinit(self: *@This()) void {
+    const parent = self.arena.child_allocator;
     const allocator = self.arena.allocator();
     for (self.windows.values()) |window| {
-        window.deinit(allocator);
+        window.deinit();
     }
     self.windows.deinit(allocator);
-
-    self.impl.deinit();
+    self.queue.deinit();
     self.arena.deinit();
+    parent.destroy(self);
 }
 
 pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
@@ -72,7 +74,7 @@ pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
 pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
     const allocator = self.arena.allocator();
 
-    const win = try Window.init(allocator, opts, self);
+    const win = try Window.init(allocator, self, opts);
     try self.windows.put(allocator, win.id(), win);
 
     return win;
@@ -80,13 +82,25 @@ pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
 
 pub fn closeWindow(self: *@This(), id: usize) void {
     if (self.windows.get(id)) |win| {
-        win.deinit(self.arena.allocator());
+        win.deinit();
         _ = self.windows.swapRemove(id);
     }
 }
 
 pub fn isActive(self: *const @This()) bool {
     return self.windows.count() > 0;
+}
+
+/// Attempt to get the next `WindowEvent` in the queue.
+///
+/// This will skip events for windows that no longer exist
+pub fn pop(self: *@This()) ?WindowEvent {
+    while (self.queue.pop()) |data| {
+        if (self.windows.get(data[0])) |win| {
+            return .{ .window = win, .event = data[1] };
+        }
+    }
+    return null;
 }
 
 pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, isize })) bool {
@@ -106,7 +120,8 @@ pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, is
 ///
 /// The choice to drain all currently queued events comes from how linux (wayland) dispatches
 /// all queued events regardless of blocking or not.
-pub fn poll() void {
+pub fn poll(self: *@This()) !void {
+    _ = self;
     var message: windows_and_messaging.MSG = undefined;
     while (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
         _ = windows_and_messaging.TranslateMessage(&message);
@@ -117,7 +132,8 @@ pub fn poll() void {
 /// Block the event loop until the next event draining all queued window events
 ///
 /// This will translate all events and append them to the event loops queue.
-pub fn wait() void {
+pub fn wait(self: *@This()) !void {
+    _ = self;
     var message: windows_and_messaging.MSG = undefined;
     if (windows_and_messaging.GetMessageW(&message, null, 0, 0) != 0) {
         _ = windows_and_messaging.TranslateMessage(&message);
@@ -189,7 +205,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
         },
         windows_and_messaging.WM_SETCURSOR => {
             // Set user defined cursor when the mouse moves within the window
-            _ = windows_and_messaging.SetCursor(Window.Impl.getHCursor(win.impl.cursor));
+            _ = windows_and_messaging.SetCursor(Window.getHCursor(win.cursor));
 
             // Allow for resize cursor to be drawn if cursor is at correct position
             // return windows_and_messaging.DefWindowProcW(hwnd, msg, wparam, lparam);
@@ -197,8 +213,8 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
         util.WM_TRAYICON => {
             const mouse: u32 = @bitCast(@as(i32, @intCast((@as(i16, @truncate(lparam))))));
             if (mouse == windows_and_messaging.WM_CONTEXTMENU or mouse == windows_and_messaging.WM_RBUTTONUP) {
-                const selected = win.impl.showSystemTray();
-                const menu_item = win.impl.item_to_systray.getPtr(selected);
+                const selected = win.showSystemTray();
+                const menu_item = win.item_to_systray.getPtr(selected);
                 if (menu_item) |info| {
                     return Event{ .system_tray = .{
                         .id = selected,
@@ -206,14 +222,14 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
                     } };
                 }
             } else if (mouse == windows_and_messaging.WM_LBUTTONUP) {
-                win.impl.systemTrayOnClick(ev, win);
+                win.systemTrayOnClick(ev, win);
             }
         },
         windows_and_messaging.WM_COMMAND => {
             const wmId: u16 = @truncate(wparam);
             const wmEvent: u16 = @truncate(wparam >> 16);
             if (wmEvent == 0) {
-                const menu_info = win.impl.item_to_menubar.getPtr(@intCast(wmId));
+                const menu_info = win.item_to_menubar.getPtr(@intCast(wmId));
                 if (menu_info) |info| {
                     return Event{
                         .menu = .{

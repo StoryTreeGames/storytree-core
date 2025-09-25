@@ -99,12 +99,14 @@ pub fn init(allocator: std.mem.Allocator, event_loop: *EventLoop, options: Optio
     return self;
 }
 
-pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+pub fn deinit(self: *@This()) void {
     self.surface.destroy();
     self.buffer.destroy();
     self.desktop.deinit();
+
+    const parent = self.arena.child_allocator;
     self.arena.deinit();
-    allocator.destroy(self);
+    parent.destroy(self);
 }
 
 pub fn id(self: *const @This()) usize {
