@@ -51,26 +51,11 @@ pub const Options = struct {
     show: Visibility = .restore,
 };
 
-arena: std.heap.ArenaAllocator,
-
-impl: *Impl,
-alive: bool,
-
-pub fn init(allocator: std.mem.Allocator, options: Options, event_loop: *EventLoop) !@This() {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-
-    return .{
-        .impl = try Impl.init(arena.allocator(), options, event_loop),
-        .alive = true,
-        .arena = arena,
-    };
-}
-
-pub fn deinit(self: *@This()) void {
-    self.impl.destroy();
-    self.arena.deinit();
-}
+pub const Window = switch (@import("builtin").target.os.tag) {
+    .windows => @import("windows/window.zig"),
+    .linux => @import("linux/window.zig"),
+    else => @compileError("unsupported platform"),
+};
 
 pub fn id(self: *const @This()) usize {
     return self.impl.id();
@@ -89,7 +74,6 @@ pub fn id(self: *const @This()) usize {
 pub fn handles(self: *const @This()) Handles {
     return self.impl.handles();
 }
-
 
 pub fn visibility(self: *const @This()) Visibility {
     return self.impl.visibility();

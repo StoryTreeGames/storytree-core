@@ -3,7 +3,7 @@ const VirtualKey = @import("../input.zig").VirtualKey;
 
 pub fn virtualKeyToCode(virtual_key: VirtualKey) i32 {
     return switch (virtual_key) {
-        .back => 0x08,
+        .backspace => 0x08,
         .tab => 0x09,
         .clear => 0x0c,
         .@"return" => 0x0d,
@@ -29,8 +29,8 @@ pub fn virtualKeyToCode(virtual_key: VirtualKey) i32 {
         .nonconvert => 0x1d,
         .accept => 0x1e,
         .modechange => 0x1f,
-        .prior => 0x21,
-        .next => 0x22,
+        .page_up => 0x21,
+        .page_down => 0x22,
         .end => 0x23,
         .home => 0x24,
         .left => 0x25,
@@ -89,7 +89,7 @@ pub fn virtualKeyToCode(virtual_key: VirtualKey) i32 {
         .f23 => 0x86,
         .f24 => 0x87,
         .num_lock => 0x90,
-        .scroll => 0x91,
+        .scroll_lock => 0x91,
         .browser_back => 0xa6,
         .browser_forward => 0xa7,
         .browser_refresh => 0xa8,
@@ -108,32 +108,26 @@ pub fn virtualKeyToCode(virtual_key: VirtualKey) i32 {
         .launch_media_select => 0xb5,
         .launch_app1 => 0xb6,
         .launch_app2 => 0xb7,
-        .oem_8 => 0xdf,
         .oem_102 => 0xe2,
-        .processkey => 0xe5,
-        .packet => 0xe7,
-        .attn => 0xf6,
-        .crsel => 0xf7,
-        .exsel => 0xf8,
-        .ereof => 0xf9,
-        .play => 0xfa,
-        .zoom => 0xfb,
-        .noname => 0xfc,
-        .pa1 => 0xfd,
-        .oem_clear => 0xFE,
     };
 }
 
 pub fn codeToVirtualKey(wparam: usize, lparam: isize) ?VirtualKey {
     _ = lparam;
     return switch (wparam) {
-        0x08 => .back,
+        0x08 => .backspace,
         0x09 => .tab,
         0x0c => .clear,
         0x0d => .@"return",
-        0x10, 0xa0, 0xa1 => .shift,
-        0x11, 0xa2, 0xa3 => .control,
-        0x12, 0xa4, 0xa5 => .alt,
+        0x10 => .shift,
+        0xa0 => .left_shift,
+        0xa1 => .right_shift,
+        0x11 => .control,
+        0xa2 => .left_control,
+        0xa3 => .right_control,
+        0x12 => .alt,
+        0xa4 => .left_alt,
+        0xa5 => .right_alt,
         0x13 => .pause,
         0x14 => .caps_lock,
         0x15 => .kana_hangul,
@@ -147,8 +141,8 @@ pub fn codeToVirtualKey(wparam: usize, lparam: isize) ?VirtualKey {
         0x1d => .nonconvert,
         0x1e => .accept,
         0x1f => .modechange,
-        0x21 => .prior,
-        0x22 => .next,
+        0x21 => .page_up,
+        0x22 => .page_down,
         0x23 => .end,
         0x24 => .home,
         0x25 => .left,
@@ -156,9 +150,9 @@ pub fn codeToVirtualKey(wparam: usize, lparam: isize) ?VirtualKey {
         0x27 => .right,
         0x28 => .down,
         0x29 => .select,
-        0x2a => .print,
         0x2b => .execute,
-        0x2c => .snapshot,
+        0x2c, 0x2a => .snapshot,
+        // 0x2a => .print,
         0x2d => .insert,
         0x2e => .delete,
         0x2f => .help,
@@ -207,7 +201,7 @@ pub fn codeToVirtualKey(wparam: usize, lparam: isize) ?VirtualKey {
         0x86 => .f23,
         0x87 => .f24,
         0x90 => .num_lock,
-        0x91 => .scroll,
+        0x91 => .scroll_lock,
         0xa6 => .browser_back,
         0xa7 => .browser_forward,
         0xa8 => .browser_refresh,
@@ -226,19 +220,7 @@ pub fn codeToVirtualKey(wparam: usize, lparam: isize) ?VirtualKey {
         0xb5 => .launch_media_select,
         0xb6 => .launch_app1,
         0xb7 => .launch_app2,
-        0xdf => .oem_8,
         0xe2 => .oem_102,
-        0xe5 => .processkey,
-        0xe7 => .packet,
-        0xf6 => .attn,
-        0xf7 => .crsel,
-        0xf8 => .exsel,
-        0xf9 => .ereof,
-        0xfa => .play,
-        0xfb => .zoom,
-        0xfc => .noname,
-        0xfd => .pa1,
-        0xFE => .oem_clear,
         else => null,
     };
 }
@@ -249,7 +231,7 @@ pub fn getKeyState(key: anytype) bool {
     var value = switch (KEY) {
         u8, u21, u32, comptime_int => @as(i32, @bitCast(@as(u32, @intCast(key)))),
         VirtualKey, @Type(.enum_literal) => virtualKeyToCode(key),
-        else => @compileError("expected char or virtual key")
+        else => @compileError("expected char or virtual key"),
     };
 
     if (key >= 97 and key <= 122) {
@@ -266,7 +248,7 @@ pub fn getAsyncKeyState(key: anytype) bool {
     var value = switch (KEY) {
         u8, u21, u32, comptime_int => @as(i32, @bitCast(@as(u32, @intCast(key)))),
         VirtualKey, @Type(.enum_literal) => virtualKeyToCode(key),
-        else => @compileError("expected char or virtual key")
+        else => @compileError("expected char or virtual key"),
     };
 
     if (key >= 97 and key <= 122) {

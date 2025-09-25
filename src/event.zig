@@ -1,12 +1,7 @@
 const std = @import("std");
 const input = @import("input.zig");
 
-const impl = switch (@import("builtin").os.tag) {
-    .windows => @import("windows/event.zig"),
-    else => @compileError("platform not supported"),
-};
-
-const Window = @import("window.zig");
+const Window = @import("window.zig").Window;
 const Key = input.Key;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
@@ -98,7 +93,7 @@ pub const MenuEvent = struct {
     item: *MenuInfo,
 
     pub fn toggle(self: *const @This(), state: bool) void {
-        impl.toggleMenuItem(self.id, self.item, state);
+        EventLoop.toggleMenuItem(self.id, self.item, state);
     }
 };
 
@@ -108,8 +103,6 @@ pub const WindowEvent = struct {
 };
 
 pub const Event = union(enum) {
-    /// Repaint request
-    repaint,
     /// Close request
     close,
     /// Resize event pose
@@ -134,7 +127,7 @@ pub const Event = union(enum) {
 /// Linked queue (unbounded except by memory).
 /// - Non-blocking: tryPop returns null when empty; push allocates a node per item.
 /// - No Conditions/Mutexes. Just atomic pointer handoff.
-pub fn LinkedQueueUnmanaged(comptime T: type) type {
+pub fn LinkedQueue(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -142,6 +135,8 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
             next: ?*Node,
             value: T,
         };
+
+        allocator: std.mem.Allocator,
 
         mutex: std.Thread.Mutex = .{},
 
@@ -152,7 +147,7 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
         pub const PushError = std.mem.Allocator.Error;
 
         /// Frees any remaining nodes. Ensure no threads are using the queue.
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *Self) void {
             self.mutex.lock();
             var cur = self.head;
             self.head = null;
@@ -162,14 +157,14 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
 
             while (cur) |n| {
                 const next = n.next;
-                allocator.destroy(n);
+                self.allocator.destroy(n);
                 cur = next;
             }
         }
 
         /// Enqueue one value. Allocates a node; never blocks (aside from the lock).
-        pub fn append(self: *Self, allocator: std.mem.Allocator, value: T) PushError!void {
-            const n = try allocator.create(Node);
+        pub fn append(self: *Self, value: T) PushError!void {
+            const n = try self.allocator.create(Node);
             n.* = .{ .next = null, .value = value };
 
             self.mutex.lock();
@@ -185,7 +180,7 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
         }
 
         /// Dequeue one value if available; returns null when empty.
-        pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
+        pub fn pop(self: *Self) ?T {
             self.mutex.lock();
             defer self.mutex.unlock();
 
@@ -198,7 +193,7 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
             self.count -= 1;
 
             const result = h.value;
-            allocator.destroy(h);
+            self.allocator.destroy(h);
             return result;
         }
 
@@ -216,83 +211,10 @@ pub fn LinkedQueueUnmanaged(comptime T: type) type {
     };
 }
 
-pub const EventLoop = struct {
-    arena: std.heap.ArenaAllocator,
+pub const EventQueue = LinkedQueue(std.meta.Tuple(&.{ usize, Event }));
 
-    windows: std.AutoArrayHashMapUnmanaged(usize, *Window) = .empty,
-    queue: LinkedQueueUnmanaged(std.meta.Tuple(&.{ usize, Event })) = .{},
-
-    pub fn init(allocator: std.mem.Allocator) !@This() {
-        return .{ .arena = std.heap.ArenaAllocator.init(allocator) };
-    }
-
-    pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
-        try impl.setAppId(self.arena.allocator(), app_id);
-    }
-
-    pub fn deinit(self: *@This()) void {
-        self.arena.deinit();
-    }
-
-    pub fn createWindow(self: *@This(), opts: Window.Options) !*Window {
-        const allocator = self.arena.allocator();
-
-        const win = try allocator.create(Window);
-        errdefer allocator.destroy(win);
-        win.* = try .init(allocator, opts, self);
-
-        try self.windows.put(allocator, win.id(), win);
-        return win;
-    }
-
-    pub fn closeWindow(self: *@This(), id: usize) void {
-        if (self.windows.get(id)) |win| {
-            win.deinit();
-            self.arena.allocator().destroy(win);
-            _ = self.windows.swapRemove(id);
-        }
-    }
-
-    pub fn isActive(self: *const @This()) bool {
-        return self.windows.count() > 0;
-    }
-
-    /// Poll for a new event
-    ///
-    /// `null` if no new events else `WindowEvent`
-    pub fn poll(self: *@This()) ?WindowEvent {
-        _ = impl.poll();
-        if (self.queue.pop(self.arena.allocator())) |data| {
-            if (self.windows.get(data[0])) |win| {
-                return .{ .window = win, .event = data[1] };
-            }
-        }
-        return null;
-    }
-
-    /// Get the next event
-    ///
-    /// Blocks until polling returns the next event
-    pub fn next(self: *@This()) WindowEvent {
-        while (true) {
-            if (self.queue.pop(self.arena.allocator())) |data| {
-                if (self.windows.get(data[0])) |win| {
-                    return .{ .window = win, .event = data[1] };
-                }
-            }
-            _ = impl.next();
-        }
-    }
-
-    pub fn handleEvent(self: *@This(), args: anytype) bool {
-        const winId = impl.parseWindowId(args);
-        if (self.windows.get(winId)) |win| {
-            const event = impl.parseEvent(self, win, args);
-            if (event) |e| {
-                self.queue.append(self.arena.allocator(), .{ winId, e }) catch return false;
-                return true;
-            }
-        }
-        return false;
-    }
+pub const EventLoop = switch (@import("builtin").target.os.tag) {
+    .windows => @import("windows/event.zig"),
+    .linux => @import("linux/event.zig"),
+    else => @compileError("unsupported platform"),
 };

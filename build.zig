@@ -10,10 +10,11 @@ const examples = [_]Example{
     .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
     .{ .name = "dialog", .path = EXAMPLES ++ "/dialog.zig" },
     .{ .name = "window_menu", .path = EXAMPLES ++ "/menu.zig" },
-    .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
     .{ .name = "notification", .path = EXAMPLES ++ "/notification.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
+    .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
+    .{ .name = "linux-dev", .path = EXAMPLES ++ "/linux-dev.zig" },
 };
 
 pub fn build(b: *std.Build) !void {

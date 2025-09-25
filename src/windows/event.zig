@@ -12,8 +12,9 @@ const event = @import("../event.zig");
 const input = @import("input.zig");
 const util = @import("./util.zig");
 
-const EventLoop = event.EventLoop;
-const Window = @import("../window.zig");
+const EventQueue = event.EventQueue;
+const Window = @import("window.zig");
+const WindowOptions = @import("../window.zig").Options;
 const Modifiers = event.Modifiers;
 const Event = event.Event;
 const EventHandler = event.EventHandler;
@@ -28,8 +29,76 @@ const VK_RALT = keyboard_and_mouse.VK_RMENU;
 const VK_SHIFT = keyboard_and_mouse.VK_SHIFT;
 const VK_LSHIFT = keyboard_and_mouse.VK_LSHIFT;
 const VK_RSHIFT = keyboard_and_mouse.VK_RSHIFT;
+const HWND = foundation.HWND;
 
 const PRESSED: u8 = 0b10000000;
+
+arena: std.heap.ArenaAllocator,
+
+windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
+queue: EventQueue,
+
+pub fn init(allocator: std.mem.Allocator) !@This() {
+    const self = try allocator.create(@This());
+    errdefer allocator.destroy(self);
+
+    self.arena = std.heap.ArenaAllocator.init(allocator);
+    self.queue = .{ .allocator = self.arena.allocator() };
+    self.windows = .empty;
+
+    return self;
+}
+
+pub fn deinit(self: *@This()) void {
+    const allocator = self.arena.allocator();
+    for (self.windows.values()) |window| {
+        window.deinit(allocator);
+    }
+    self.windows.deinit(allocator);
+
+    self.impl.deinit();
+    self.arena.deinit();
+}
+
+pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
+    const allocator = self.arena.allocator();
+
+    const wid: [:0]const u16 = try std.unicode.utf8ToUtf16LeAllocZ(allocator, app_id);
+    defer allocator.free(wid);
+
+    if (util.SetCurrentProcessExplicitAppUserModelID(wid.ptr) != util.S_OK) return error.UnknownError;
+}
+
+pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
+    const allocator = self.arena.allocator();
+
+    const win = try Window.init(allocator, opts, self);
+    try self.windows.put(allocator, win.id(), win);
+
+    return win;
+}
+
+pub fn closeWindow(self: *@This(), id: usize) void {
+    if (self.windows.get(id)) |win| {
+        win.deinit(self.arena.allocator());
+        _ = self.windows.swapRemove(id);
+    }
+}
+
+pub fn isActive(self: *const @This()) bool {
+    return self.windows.count() > 0;
+}
+
+pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, isize })) bool {
+    const winId = @intFromPtr(args[0]);
+    if (self.windows.get(winId)) |win| {
+        if (parseEvent(self, win, args)) |evt| {
+            self.queue.append(.{ winId, evt }) catch return false;
+            return true;
+        }
+    }
+    return false;
+}
 
 /// Poll for events draining all queued window events
 ///
@@ -48,7 +117,7 @@ pub fn poll() void {
 /// Block the event loop until the next event draining all queued window events
 ///
 /// This will translate all events and append them to the event loops queue.
-pub fn next() void {
+pub fn wait() void {
     var message: windows_and_messaging.MSG = undefined;
     if (windows_and_messaging.GetMessageW(&message, null, 0, 0) != 0) {
         _ = windows_and_messaging.TranslateMessage(&message);
@@ -60,12 +129,6 @@ pub fn next() void {
         _ = windows_and_messaging.TranslateMessage(&message);
         _ = windows_and_messaging.DispatchMessageW(&message);
     }
-}
-
-pub fn setAppId(allocator: std.mem.Allocator, id: []const u8) !void {
-    const wid: [:0]const u16 = try std.unicode.utf8ToUtf16LeAllocZ(allocator, id);
-    defer allocator.free(wid);
-    if (util.SetCurrentProcessExplicitAppUserModelID(wid.ptr) != util.S_OK) return error.UnknownError;
 }
 
 pub fn toggleMenuItem(id: u32, item: *MenuInfo, state: bool) void {
@@ -115,7 +178,7 @@ pub fn parseWindowId(args: EventArgs) usize {
 }
 
 var resize: ?util.RECT = null;
-pub fn parseEvent(ev: *EventLoop, win: *Window, args: EventArgs) ?Event {
+pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
     const hwnd: foundation.HWND, const message: u32, const wparam: usize, const lparam: isize = args;
     _ = hwnd;
 
@@ -137,12 +200,10 @@ pub fn parseEvent(ev: *EventLoop, win: *Window, args: EventArgs) ?Event {
                 const selected = win.impl.showSystemTray();
                 const menu_item = win.impl.item_to_systray.getPtr(selected);
                 if (menu_item) |info| {
-                    return Event{
-                        .system_tray = .{
-                            .id = selected,
-                            .item = info,
-                        }
-                    };
+                    return Event{ .system_tray = .{
+                        .id = selected,
+                        .item = info,
+                    } };
                 }
             } else if (mouse == windows_and_messaging.WM_LBUTTONUP) {
                 win.impl.systemTrayOnClick(ev, win);

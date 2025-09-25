@@ -252,8 +252,8 @@ pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, 
 /// @returns `Window` An instance of a window. Contains methods to manipulate the window.
 pub fn init(
     allocator: std.mem.Allocator,
-    options: Win.Options,
     event_loop: *EventLoop,
+    options: Win.Options,
 ) !*@This() {
     const win = try allocator.create(@This());
     errdefer allocator.destroy(win);
@@ -331,15 +331,12 @@ pub fn init(
     }
 
     _ = dwm.DwmSetWindowAttribute(hwnd, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
-    _ = windows_and_messaging.ShowWindow(
-        hwnd,
-        switch (options.show) {
-            .hidden => windows_and_messaging.SW_HIDE,
-            .minimize => windows_and_messaging.SW_MINIMIZE,
-            .maximize => windows_and_messaging.SW_MAXIMIZE,
-            else => windows_and_messaging.SW_SHOWDEFAULT,
-        }
-    );
+    _ = windows_and_messaging.ShowWindow(hwnd, switch (options.show) {
+        .hidden => windows_and_messaging.SW_HIDE,
+        .minimize => windows_and_messaging.SW_MINIMIZE,
+        .maximize => windows_and_messaging.SW_MAXIMIZE,
+        else => windows_and_messaging.SW_SHOWDEFAULT,
+    });
     _ = gdi.UpdateWindow(hwnd);
 
     const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, win);
@@ -372,7 +369,7 @@ pub fn init(
     return win;
 }
 
-pub fn deinit(self: *@This()) void {
+pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
     windows_and_messaging.DestroyWindow(self.handle);
 
     // Revoke and free drag and drop target handler
@@ -398,6 +395,11 @@ pub fn deinit(self: *@This()) void {
 
     // Free allocated menu bar memory
     for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
+
+    // Unregister the class
+    _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
+
+    allocator.destroy(self);
 }
 
 pub fn id(self: *const @This()) usize {
@@ -411,11 +413,6 @@ pub fn handles(self: *const @This()) Win.Handles {
         .parent = @ptrCast(self.instance.?),
         .target = @ptrCast(self.handle),
     };
-}
-
-pub fn destroy(self: *const @This()) void {
-    _ = windows_and_messaging.DestroyWindow(self.handle);
-    _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
 }
 
 pub fn bringToTop(self: *const @This()) void {

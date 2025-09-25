@@ -56,7 +56,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Mouse
     - [x] Resize
     - [x] Menu
-    - [x] Repaint
+    - [ ] Repaint
     - [x] Theme Change
     - [x] Drag Drop
   - [-] Query
@@ -72,8 +72,8 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - This can be difficult and error prone. Plain white background with black text should work for now.
 
 - [ ] Wayland
-  - [ ] Basic window creation
-    - [ ] Blank Window
+  - [-] Basic window creation
+    - [x] Blank Window
     - [ ] Size
     - [ ] Pos
     - [ ] Icon
@@ -96,10 +96,10 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Set and Update Menu
     - [ ] Fullscreen
   - [ ] Event listening and handling
-    - [ ] Close 
-    - [ ] Keyboard
-    - [ ] Mouse
-    - [ ] Resize
+    - [x] Close 
+    - [x] Keyboard
+    - [x] Mouse
+    - [x] Resize
     - [ ] Menu 
     - [ ] Repaint
     - [ ] Theme Change
