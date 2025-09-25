@@ -107,13 +107,10 @@ pub fn main() anyerror!void {
 
     // Create Surface
     const surface = try compositor.createSurface();
-    defer surface.destroy();
 
     // Create toplevel shell surface. Handles adding titlebar with buttons
     const xdg_surface = try wm_base.getXdgSurface(surface);
-    defer xdg_surface.destroy();
     const xdg_toplevel = try xdg_surface.getToplevel();
-    defer xdg_toplevel.destroy();
 
     var window = Window{
         .allocator = allocator,
@@ -123,6 +120,7 @@ pub fn main() anyerror!void {
         .display = display,
         .surface = surface,
         .buffer = buffer,
+        .xdg_surface = xdg_surface,
         .top_level = xdg_toplevel,
         .seat = Seat{ .seat = wl_seat },
     };
@@ -584,12 +582,14 @@ const Window = struct {
     shm: *wl.Shm,
     display: *wl.Display,
     surface: *wl.Surface,
+    xdg_surface: *xdg.Surface,
     top_level: *xdg.Toplevel,
     buffer: *Buffer,
 
     pub fn deinit(self: *@This()) void {
         self.shm.destroy();
         self.surface.destroy();
+        self.xdg_surface.destroy();
         self.top_level.destroy();
         self.buffer.destroy();
 
