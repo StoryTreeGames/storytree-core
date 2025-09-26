@@ -12,8 +12,8 @@ const Payload = struct {
     shm: ?*wl.Shm = null,
     compositor: ?*wl.Compositor = null,
     wm_base: ?*xdg.WmBase = null,
-    deco_mng: ?*zxdg.DecorationManagerV1 = null,
     seat: ?*wl.Seat = null,
+    deco_mng: ?*zxdg.DecorationManagerV1 = null,
 };
 
 shm: *wl.Shm,

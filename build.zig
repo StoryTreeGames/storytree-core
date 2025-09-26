@@ -14,7 +14,7 @@ const examples = [_]Example{
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
     .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
-    .{ .name = "linux-dev", .path = EXAMPLES ++ "/linux-dev.zig" },
+    .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
 };
 
 pub fn build(b: *std.Build) !void {
@@ -54,11 +54,18 @@ pub fn build(b: *std.Build) !void {
             // TODO: Remove this in favor of https://codeberg.org/ifreund/zig-xkbcommon when
             //        is updated to zig v0.15.1
             module.linkSystemLibrary("xkbcommon", .{});
+            module.linkSystemLibrary("dbus-1", .{});
+
+            module.addIncludePath(.{ .cwd_relative = "/usr/include/dbus-1.0" });
+            module.addIncludePath(.{ .cwd_relative = "/usr/lib/x86_64-linux-gnu/dbus-1.0/include" });
 
             const scanner = Scanner.create(b, .{});
             const wayland = b.createModule(.{ .root_source_file = scanner.result });
 
+            // Stable
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+
+            // Unstable
             scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
 
             scanner.generate("wl_compositor", 1);

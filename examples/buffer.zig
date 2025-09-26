@@ -3,7 +3,10 @@ const std = @import("std");
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 
-const Context = @import("context.zig");
+const core = @import("storytree-core");
+const EventLoop = core.event.EventLoop;
+
+const Resize = core.event.SizeEvent;
 
 fd: std.posix.fd_t,
 data: []u32,
@@ -15,7 +18,7 @@ busy: bool = false,
 want_free: bool = false,
 allocator: std.mem.Allocator,
 
-pub fn create(allocator: std.mem.Allocator, ctx: *const Context, width: i32, height: i32) !*@This() {
+pub fn create(allocator: std.mem.Allocator, el: *const EventLoop, width: i32, height: i32) !*@This() {
     const stride = width * @sizeOf(u32);
     const size = stride * height;
 
@@ -34,7 +37,7 @@ pub fn create(allocator: std.mem.Allocator, ctx: *const Context, width: i32, hei
     );
     errdefer std.posix.munmap(data);
 
-    const pool = try ctx.shm.createPool(fd, size);
+    const pool = try el.context.shm.createPool(fd, size);
     defer pool.destroy();
 
     const buffer = try pool.createBuffer(0, width, height, stride, wl.Shm.Format.argb8888);
@@ -57,20 +60,22 @@ pub fn create(allocator: std.mem.Allocator, ctx: *const Context, width: i32, hei
 
 pub fn destroy(self: *@This()) void {
     if (!self.busy) {
-        std.debug.print("Buffer Destroy Free Mem\n", .{});
-        _ = std.posix.munmap(@ptrCast(@alignCast(self.data)));
-        std.posix.close(self.fd);
-        self.buf.destroy();
-        self.allocator.destroy(self);
+        self.deinit();
         return;
     }
     self.want_free = true;
 }
 
+pub fn deinit(self: *@This()) void {
+    _ = std.posix.munmap(@ptrCast(@alignCast(self.data)));
+    std.posix.close(self.fd);
+    self.buf.destroy();
+    self.allocator.destroy(self);
+}
+
 pub fn listener(_: *wl.Buffer, _: wl.Buffer.Event, self: *@This()) void {
     self.busy = false;
     if (self.want_free) {
-        std.debug.print("Buffer Listener Free Mem\n", .{});
         _ = std.posix.munmap(@ptrCast(@alignCast(self.data)));
         std.posix.close(self.fd);
         self.buf.destroy();
@@ -90,4 +95,24 @@ pub fn present(self: *@This(), surface: *wl.Surface) void {
     surface.damage(0, 0, self.width, self.height);
     surface.commit();
     self.busy = true;
+}
+
+pub fn take(self: *@This(), surface: *wl.Surface) void {
+    surface.attach(null, 0, 0);
+    surface.commit();
+    self.busy = false;
+}
+
+pub fn resize(allocator: std.mem.Allocator, buff: *?*@This(), surface: *wl.Surface, el: *EventLoop, r: Resize) !void {
+    // On linux the buffer that is the window background must be handled by the user
+    // there is no default background. If the library drew a background by default
+    // it would conflict with things like wgpu, etc.
+    if (buff.*) |b| {
+        b.take(surface);
+        b.destroy();
+    }
+
+    buff.* = try create(allocator, el, @intCast(r.width), @intCast(r.height));
+    buff.*.?.repaint(0xFF000000);
+    buff.*.?.present(surface);
 }

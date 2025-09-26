@@ -18,7 +18,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
 ## Requirements
 
 - **Linux**
-  - Packages: `wayland-protocols`, `libwayland-dev` (or a varant that provides wayland-scanner), `libxkbcommon-dev`
+  - Packages: `wayland-protocols`, `libwayland-dev` (or a varant that provides wayland-scanner), `libxkbcommon-dev`, `libdbus-1-dev`
 
 ## TODO
 

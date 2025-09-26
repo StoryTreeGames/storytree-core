@@ -209,7 +209,7 @@ system_tray: ?struct {
 systray_menus: std.ArrayListUnmanaged(HMENU) = .empty,
 item_to_systray: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
 
-fullscreen: ?struct {
+fullscreen_state: ?struct {
     client: util.RECT,
     style: windows_and_messaging.WINDOW_STYLE,
     ex_style: windows_and_messaging.WINDOW_EX_STYLE,
@@ -361,7 +361,7 @@ pub fn init(
     try win.setIcon(options.icon);
 
     if (options.show == .fullscreen) {
-        win.setFullScreen(true) catch {};
+        win.fullscreen(true) catch {};
     }
 
     return win;
@@ -423,6 +423,8 @@ pub fn bringToTop(self: *const @This()) void {
 }
 
 pub fn visibility(self: *const @This()) Win.Visibility {
+    if (self.fullscreen_state != null) return .fullscreen;
+
     var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
     placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
 
@@ -456,7 +458,28 @@ pub fn maximize(self: *const @This()) void {
 
 /// Restore the window to its default windowed state
 pub fn restore(self: *const @This()) void {
-    showWindow(self.handle, .restore);
+    if (self.fullscreen_state) |old| {
+        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(old.style));
+        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(old.ex_style));
+
+        _ = windows_and_messaging.SetWindowPos(
+            self.handle,
+            null,
+            old.client.left,
+            old.client.top,
+            old.client.right - old.client.left,
+            old.client.bottom - old.client.top,
+            windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
+        );
+
+        if (old.state == windows_and_messaging.SW_MAXIMIZE) {
+            _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_MAXIMIZE);
+        }
+
+        self.fullscreen_state = null;
+    } else {
+        showWindow(self.handle, .restore);
+    }
 }
 
 /// Get the windows current rect (bounding box)
@@ -626,91 +649,47 @@ pub fn setCapture(self: *@This(), state: bool) void {
     }
 }
 
-/// Get whether the window is currently in fullscreen
-pub fn getFullScreen(self: *const @This()) bool {
-    return self.fullscreen != null;
-}
-
 /// Set or Unset the current window to be full screen.
-///
-/// + **true**: It will take up the entire screen of the current monitor where
-///   the window is located if it is fullscreen.
-/// + **false**: The window's styles, size, and position are restored and if
-///   the window was maximized before fullscreen, it will go back to being
-///   maximized.
-pub fn setFullScreen(self: *@This(), state: bool) !void {
-    if (state) {
-        if (self.fullscreen != null) return;
+pub fn fullscreen(self: *@This()) !void {
+    if (self.fullscreen_state != null) return;
 
-        var style: windows_and_messaging.WINDOW_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE));
-        var ex_style: windows_and_messaging.WINDOW_EX_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE));
+    var style: windows_and_messaging.WINDOW_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE));
+    var ex_style: windows_and_messaging.WINDOW_EX_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE));
 
-        var rect: util.RECT = undefined;
-        _ = windows_and_messaging.GetWindowRect(self.handle, &rect);
+    var rect: util.RECT = undefined;
+    _ = windows_and_messaging.GetWindowRect(self.handle, &rect);
 
-        var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
-        placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
-        _ = windows_and_messaging.GetWindowPlacement(self.handle, &placement);
+    var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
+    placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
+    _ = windows_and_messaging.GetWindowPlacement(self.handle, &placement);
 
-        self.fullscreen = .{ .client = rect, .style = style, .ex_style = ex_style, .state = placement.showCmd };
+    self.fullscreen_state = .{ .client = rect, .style = style, .ex_style = ex_style, .state = placement.showCmd };
 
-        style.THICKFRAME = 0;
-        style.DLGFRAME = 0;
-        style.BORDER = 0;
+    style.THICKFRAME = 0;
+    style.DLGFRAME = 0;
+    style.BORDER = 0;
 
-        ex_style.DLGMODALFRAME = 0;
-        ex_style.WINDOWEDGE = 0;
-        ex_style.CLIENTEDGE = 0;
-        ex_style.STATICEDGE = 0;
+    ex_style.DLGMODALFRAME = 0;
+    ex_style.WINDOWEDGE = 0;
+    ex_style.CLIENTEDGE = 0;
+    ex_style.STATICEDGE = 0;
 
-        _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_RESTORE);
-        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(style));
-        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(ex_style));
-        var info: gdi.MONITORINFO = undefined;
-        info.cbSize = @sizeOf(gdi.MONITORINFO);
-        if (gdi.GetMonitorInfoW(gdi.MonitorFromWindow(self.handle, gdi.MONITOR_DEFAULTTONEAREST), &info) == zig.TRUE) {
-            _ = windows_and_messaging.SetWindowPos(
-                self.handle,
-                windows_and_messaging.HWND_TOPMOST,
-                info.rcMonitor.left,
-                info.rcMonitor.top,
-                info.rcMonitor.right - info.rcMonitor.left,
-                info.rcMonitor.bottom - info.rcMonitor.top,
-                windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
-            );
-        }
-    } else if (self.fullscreen) |old| {
-        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(old.style));
-        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(old.ex_style));
-
+    _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_RESTORE);
+    _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(style));
+    _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(ex_style));
+    var info: gdi.MONITORINFO = undefined;
+    info.cbSize = @sizeOf(gdi.MONITORINFO);
+    if (gdi.GetMonitorInfoW(gdi.MonitorFromWindow(self.handle, gdi.MONITOR_DEFAULTTONEAREST), &info) == zig.TRUE) {
         _ = windows_and_messaging.SetWindowPos(
             self.handle,
-            null,
-            old.client.left,
-            old.client.top,
-            old.client.right - old.client.left,
-            old.client.bottom - old.client.top,
+            windows_and_messaging.HWND_TOPMOST,
+            info.rcMonitor.left,
+            info.rcMonitor.top,
+            info.rcMonitor.right - info.rcMonitor.left,
+            info.rcMonitor.bottom - info.rcMonitor.top,
             windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
         );
-
-        if (old.state == windows_and_messaging.SW_MAXIMIZE) {
-            _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_MAXIMIZE);
-        }
-
-        self.fullscreen = null;
     }
-}
-
-/// Get the current area that is used for rendering
-pub fn getWindowRect(self: *@This()) Rect(u32) {
-    var area: util.RECT = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 };
-    _ = windows_and_messaging.GetWindowRect(self.handle, &area);
-    return .{
-        .x = @as(u32, @bitCast(area.left)),
-        .y = @as(u32, @bitCast(area.top)),
-        .width = @as(u32, @bitCast(area.right - area.left)),
-        .height = @as(u32, @bitCast(area.bottom - area.top)),
-    };
 }
 
 /// Get the current area that is used for rendering

@@ -40,15 +40,24 @@ pub const Visibility = enum { maximize, minimize, restore, fullscreen, hidden };
 
 pub const Options = struct {
     title: []const u8 = "",
-    x: ?u32 = null,
-    y: ?u32 = null,
     width: ?u32 = null,
     height: ?u32 = null,
-    icon: Icon = .Default,
-    cursor: Cursor = .Default,
-    resizable: bool = true,
-    theme: Theme = .system,
     show: Visibility = .restore,
+
+    cursor: Cursor = .Default,
+
+    // Linux does not have reactive theme, this will be added at a later date with DBus support.
+    theme: Theme = .system,
+
+    /// Has no affect on linux.
+    ///
+    /// Linux implementation will be done at a later date.
+    icon: Icon = .Default,
+
+    // Has no affect on linux
+    x: ?u32 = null,
+    y: ?u32 = null,
+    resizable: bool = true,
 };
 
 pub const Window = switch (@import("builtin").target.os.tag) {
@@ -148,11 +157,6 @@ pub fn setCursorPos(self: *@This(), x: u32, y: u32) void {
 /// Get whether the mouse is captured by the current window
 pub fn getCapture(self: *@This()) bool {
     self.impl.getCapture();
-}
-
-/// Get the current bounds of the window
-pub fn getWindowRect(self: *@This()) Rect(u32) {
-    return self.impl.getWindowRect();
 }
 
 /// Get the current area that is used for rendering

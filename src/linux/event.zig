@@ -5,7 +5,6 @@ const wl = wayland.client.wl;
 const xdg = wayland.client.xdg;
 const zxdg = wayland.client.zxdg;
 
-const Buffer = @import("buffer.zig");
 const Window = @import("window.zig");
 const WindowOptions = @import("../window.zig").Options;
 const EventQueue = @import("../event.zig").EventQueue;
