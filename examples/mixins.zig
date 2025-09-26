@@ -21,7 +21,7 @@ pub const Platform = switch (@import("builtin").target.os.tag) {
         }
     },
     else => struct {
-        pub fn resize(_: *@This(), _: *EventLoop, _: *Window, _: SizeEvent) !void {}
+        pub fn resize(_: *@This(), _: std.mem.Allocator, _: *EventLoop, _: *Window, _: SizeEvent) !void {}
         pub fn deinit(_: *@This()) void {}
     },
 };

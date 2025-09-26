@@ -361,7 +361,7 @@ pub fn init(
     try win.setIcon(options.icon);
 
     if (options.show == .fullscreen) {
-        win.fullscreen(true) catch {};
+        win.fullscreen() catch {};
     }
 
     return win;
