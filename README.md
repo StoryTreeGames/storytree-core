@@ -24,6 +24,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 - [ ] Move dialog module to individual repo
 - [ ] Move notification module to individual repo
+- [ ] Update Windows impl to only have one UISettings on the EventLoop that will send an event when the color changes and update all windows that are set to system theme
 
 - [-] Windows
   - [x] Basic window creation
@@ -65,28 +66,27 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Gamepad
   - [x] System Tray
   - [x] Menu
-  - [ ] Custom Context Menu
-  - [ ] App ID and Start Menu for things like systray and notifications
-    - Can already assign App ID to the current process
-  - [ ] Owner Drawn menu so it uses system theme colors?
-    - This can be difficult and error prone. Plain white background with black text should work for now.
+  - [x] Set App ID
+  - [ ] Start Menu shortcut for things like associating notifications
 
 - [ ] Wayland
   - [-] Basic window creation
     - [x] Blank Window
-    - [ ] Size
-    - [ ] Pos
+    - [x] Size
+    - [x] Pos (Not Possible)
     - [ ] Icon
     - [ ] Cursor
-    - [ ] Title
-    - [ ] Resizable
+    - [x] Title
+    - [x] Resizable
+        - Controlled by the rendering impl
     - [ ] Theme
-    - [ ] Show (min/max/normal)
+    - [x] Show (min/max/normal)
+        - Hidding is controlled by the rendering impl
   - [ ] Window manipulation
-    - [ ] Minimize
-    - [ ] Maxamize
-    - [ ] Restore 
-    - [ ] Update Title
+    - [x] Minimize
+    - [x] Maxamize
+    - [x] Restore 
+    - [x] Update Title
     - [ ] Update Icon
     - [ ] Update Cursor
     - [ ] Show/Hide Cursor
@@ -94,7 +94,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Change Window Theme
     - [ ] Set Cursor Capture
     - [ ] Set and Update Menu
-    - [ ] Fullscreen
+    - [x] Fullscreen
   - [ ] Event listening and handling
     - [x] Close 
     - [x] Keyboard
@@ -111,6 +111,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [ ] System Tray
   - [ ] Custom Context Menu
   - [ ] Title Bar
+  - [x] Set App ID
   - [ ] Menu
 
 - [ ] MacOS
@@ -152,6 +153,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [ ] System Tray
   - [ ] Custom Context Menu
   - [ ] Title Bar
+  - [ ] Set App ID
   - [ ] Menu
 
 ## References
