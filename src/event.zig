@@ -97,12 +97,7 @@ pub const MenuEvent = struct {
     }
 };
 
-pub const WindowEvent = struct {
-    window: *Window,
-    event: Event,
-};
-
-pub const Event = union(enum) {
+pub const WindowEvent = union(enum) {
     /// Close request
     close,
     /// Resize event pose
@@ -121,7 +116,24 @@ pub const Event = union(enum) {
     menu: MenuEvent,
     /// SysTray Menu item event
     system_tray: MenuEvent,
-    theme: enum { light, dark },
+};
+
+pub const ThemeEvent = enum { light, dark };
+pub const Event = union(enum) {
+    theme: ThemeEvent,
+    window: struct {
+        target: *Window,
+        event: WindowEvent,
+    },
+};
+
+pub const QueuedEvent = union(enum) {
+    theme: ThemeEvent,
+    destroy: usize,
+    window: struct {
+        target: usize,
+        event: WindowEvent,
+    },
 };
 
 /// Linked queue (unbounded except by memory).
@@ -211,7 +223,7 @@ pub fn LinkedQueue(comptime T: type) type {
     };
 }
 
-pub const EventQueue = LinkedQueue(std.meta.Tuple(&.{ usize, Event }));
+pub const EventQueue = LinkedQueue(QueuedEvent);
 
 pub const EventLoop = switch (@import("builtin").target.os.tag) {
     .windows => @import("windows/event.zig"),

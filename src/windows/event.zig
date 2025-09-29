@@ -1,6 +1,11 @@
 const std = @import("std");
 const win32 = @import("windows").win32;
 
+const UISettings = @import("windows").UI.ViewManagement.UISettings;
+const TypedEventHandler = @import("windows").Foundation.TypedEventHandler;
+const IInspectable = @import("windows").Foundation.IInspectable;
+const EventRegistrationToken = @import("windows").Foundation.EventRegistrationToken;
+
 const windows_and_messaging = win32.ui.windows_and_messaging;
 const graphics = win32.graphics;
 const foundation = win32.foundation;
@@ -17,7 +22,7 @@ const WindowOptions = @import("../window.zig").Options;
 const Modifiers = event.Modifiers;
 const EventQueue = event.EventQueue;
 const Event = event.Event;
-const WindowEvent = event.WindowEvent;
+const QueuedEvent = event.QueuedEvent;
 const EventHandler = event.EventHandler;
 
 const VIRTUAL_KEY = keyboard_and_mouse.VIRTUAL_KEY;
@@ -39,6 +44,12 @@ arena: std.heap.ArenaAllocator,
 windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
 queue: EventQueue,
 
+ui_settings: *UISettings,
+theme_change_handler: struct {
+    instance: *TypedEventHandler(UISettings, IInspectable),
+    handle: EventRegistrationToken,
+},
+
 pub fn init(allocator: std.mem.Allocator) !*@This() {
     const self = try allocator.create(@This());
     errdefer allocator.destroy(self);
@@ -46,6 +57,18 @@ pub fn init(allocator: std.mem.Allocator) !*@This() {
     self.arena = std.heap.ArenaAllocator.init(allocator);
     self.queue = .{ .allocator = self.arena.allocator() };
     self.windows = .empty;
+
+    self.ui_settings = try UISettings.init();
+    errdefer self.ui_settings.deinit();
+
+    const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, self);
+    errdefer cvc_handler.deinit();
+    const cvc_handle = try self.ui_settings.addColorValuesChanged(cvc_handler);
+
+    self.theme_change_handler = .{
+        .instance = cvc_handler,
+        .handle = cvc_handle,
+    };
 
     return self;
 }
@@ -56,6 +79,12 @@ pub fn deinit(self: *@This()) void {
     for (self.windows.values()) |window| {
         window.deinit();
     }
+
+    // Remove listener for color change in ui settings
+    self.ui_settings.removeColorValuesChanged(self.theme_change_handler.handle) catch {};
+    self.theme_change_handler.instance.deinit();
+    self.ui_settings.deinit();
+
     self.windows.deinit(allocator);
     self.queue.deinit();
     self.arena.deinit();
@@ -81,9 +110,8 @@ pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
 }
 
 pub fn closeWindow(self: *@This(), id: usize) void {
-    if (self.windows.get(id)) |win| {
-        win.deinit();
-        _ = self.windows.swapRemove(id);
+    if (self.windows.fetchSwapRemove(id)) |win| {
+        win.value.deinit();
     }
 }
 
@@ -94,11 +122,20 @@ pub fn isActive(self: *const @This()) bool {
 /// Attempt to get the next `WindowEvent` in the queue.
 ///
 /// This will skip events for windows that no longer exist
-pub fn pop(self: *@This()) ?WindowEvent {
-    while (self.queue.pop()) |data| {
-        if (self.windows.get(data[0])) |win| {
-            return .{ .window = win, .event = data[1] };
-        }
+pub fn pop(self: *@This()) ?Event {
+    switch (self.queue.pop() orelse return null) {
+        .theme => |theme| return .{ .theme = theme },
+        .destroy => |key| if (self.windows.fetchSwapRemove(key)) |window| {
+            window.value.deinit();
+        },
+        .window => |we| if (self.windows.get(we.target)) |window| {
+            return .{
+                .window = .{
+                    .target = window,
+                    .event = we.event,
+                },
+            };
+        },
     }
     return null;
 }
@@ -107,7 +144,7 @@ pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, is
     const winId = @intFromPtr(args[0]);
     if (self.windows.get(winId)) |win| {
         if (parseEvent(self, win, args)) |evt| {
-            self.queue.append(.{ winId, evt }) catch return false;
+            self.queue.append(evt) catch return false;
             return true;
         }
     }
@@ -194,14 +231,17 @@ pub fn parseWindowId(args: EventArgs) usize {
 }
 
 var resize: ?util.RECT = null;
-pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
+pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
     const hwnd: foundation.HWND, const message: u32, const wparam: usize, const lparam: isize = args;
     _ = hwnd;
 
     switch (message) {
         // Request to close the window
         windows_and_messaging.WM_CLOSE => {
-            return Event.close;
+            return .{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } };
+        },
+        windows_and_messaging.WM_DESTROY => {
+            return .{ .destroy = @intFromPtr(args[0]) };
         },
         windows_and_messaging.WM_SETCURSOR => {
             // Set user defined cursor when the mouse moves within the window
@@ -216,9 +256,14 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
                 const selected = win.showSystemTray();
                 const menu_item = win.item_to_systray.getPtr(selected);
                 if (menu_item) |info| {
-                    return Event{ .system_tray = .{
-                        .id = selected,
-                        .item = info,
+                    return .{ .window = .{
+                        .target = @intFromPtr(args[0]),
+                        .event = .{
+                            .system_tray = .{
+                                .id = selected,
+                                .item = info,
+                            },
+                        },
                     } };
                 }
             } else if (mouse == windows_and_messaging.WM_LBUTTONUP) {
@@ -231,12 +276,15 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
             if (wmEvent == 0) {
                 const menu_info = win.item_to_menubar.getPtr(@intCast(wmId));
                 if (menu_info) |info| {
-                    return Event{
-                        .menu = .{
-                            .id = @intCast(wmId),
-                            .item = info,
+                    return .{ .window = .{
+                        .target = @intFromPtr(args[0]),
+                        .event = .{
+                            .menu = .{
+                                .id = @intCast(wmId),
+                                .item = info,
+                            },
                         },
-                    };
+                    } };
                 }
             }
         },
@@ -276,15 +324,18 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
                 _ = std.unicode.utf16LeToUtf8(&data, buffer[0..]) catch unreachable;
 
                 if (data.len <= 4) {
-                    return Event{
-                        .key_input = .{
-                            .key = .{ .char = data },
-                            .modifiers = modifiers,
-                            .state = .pressed,
-                            .scan = scan_code,
-                            .virtual = virtual_key,
+                    return .{ .window = .{
+                        .target = @intFromPtr(args[0]),
+                        .event = .{
+                            .key_input = .{
+                                .key = .{ .char = data },
+                                .modifiers = modifiers,
+                                .state = .pressed,
+                                .scan = scan_code,
+                                .virtual = virtual_key,
+                            },
                         },
-                    };
+                    } };
                 }
             }
         },
@@ -296,13 +347,16 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
 
                 const modifiers: Modifiers = getModifiers(&keyboard);
 
-                return Event{
-                    .key_input = .{
-                        .key = .{ .virtual = key },
-                        .modifiers = modifiers,
-                        .state = .pressed,
+                return .{ .window = .{
+                    .target = @intFromPtr(args[0]),
+                    .event = .{
+                        .key_input = .{
+                            .key = .{ .virtual = key },
+                            .modifiers = modifiers,
+                            .state = .pressed,
+                        },
                     },
-                };
+                } };
             }
             // return windows_and_messaging.DefWindowProcW(hwnd, uMsg, wparam, lparam);
         },
@@ -312,7 +366,12 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
                 const pos: usize = @intCast(lparam);
                 const x: u16 = @truncate(pos);
                 const y: u16 = @truncate(pos >> 16);
-                return Event{ .mouse_move = .{ .x = x, .y = y } };
+                return .{ .window = .{
+                    .target = @intFromPtr(args[0]),
+                    .event = .{
+                        .mouse_move = .{ .x = x, .y = y },
+                    },
+                } };
             }
         },
         // Mouse scrolling events
@@ -320,40 +379,94 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
             const params: isize = @intCast(wparam);
             const distance: i16 = @truncate(params >> 16);
 
-            return Event{ .mouse_scroll = .{
-                .direction = .vertical,
-                .delta = distance,
+            return .{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_scroll = .{
+                        .direction = .vertical,
+                        .delta = distance,
+                    },
+                },
             } };
         },
         windows_and_messaging.WM_MOUSEHWHEEL => {
             const params: isize = @intCast(wparam);
             const distance: i16 = @truncate(params >> 16);
 
-            return Event{
-                .mouse_scroll = .{
-                    .direction = .horizontal,
-                    .delta = distance,
+            return .{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_scroll = .{
+                        .direction = .horizontal,
+                        .delta = distance,
+                    },
                 },
-            };
+            } };
         },
         // Mouse button events == MouseInput
-        windows_and_messaging.WM_LBUTTONDOWN => return Event{ .mouse_input = .{ .state = .pressed, .button = .left } },
-        windows_and_messaging.WM_LBUTTONUP => return Event{ .mouse_input = .{ .state = .released, .button = .left } },
-        windows_and_messaging.WM_MBUTTONDOWN => return Event{ .mouse_input = .{ .state = .pressed, .button = .middle } },
-        windows_and_messaging.WM_MBUTTONUP => return Event{ .mouse_input = .{ .state = .released, .button = .middle } },
-        windows_and_messaging.WM_RBUTTONDOWN => return Event{ .mouse_input = .{ .state = .pressed, .button = .right } },
-        windows_and_messaging.WM_RBUTTONUP => return Event{ .mouse_input = .{ .state = .released, .button = .right } },
-        windows_and_messaging.WM_XBUTTONDOWN => return Event{ .mouse_input = .{
-            .state = .pressed,
-            .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+        windows_and_messaging.WM_LBUTTONDOWN => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .pressed, .button = .left },
+            },
         } },
-        windows_and_messaging.WM_XBUTTONUP => return Event{ .mouse_input = .{
-            .state = .released,
-            .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+        windows_and_messaging.WM_LBUTTONUP => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .released, .button = .left },
+            },
+        } },
+        windows_and_messaging.WM_MBUTTONDOWN => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .pressed, .button = .middle },
+            },
+        } },
+        windows_and_messaging.WM_MBUTTONUP => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .released, .button = .middle },
+            },
+        } },
+        windows_and_messaging.WM_RBUTTONDOWN => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .pressed, .button = .right },
+            },
+        } },
+        windows_and_messaging.WM_RBUTTONUP => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{ .state = .released, .button = .right },
+            },
+        } },
+        windows_and_messaging.WM_XBUTTONDOWN => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{
+                    .state = .pressed,
+                    .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+                },
+            },
+        } },
+        windows_and_messaging.WM_XBUTTONUP => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{
+                .mouse_input = .{
+                    .state = .released,
+                    .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+                },
+            },
         } },
         // Check for focus and unfocus
-        windows_and_messaging.WM_SETFOCUS => return Event{ .focused = true },
-        windows_and_messaging.WM_KILLFOCUS => return Event{ .focused = false },
+        windows_and_messaging.WM_SETFOCUS => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{ .focused = true },
+        } },
+        windows_and_messaging.WM_KILLFOCUS => return .{ .window = .{
+            .target = @intFromPtr(args[0]),
+            .event = .{ .focused = false },
+        } },
         windows_and_messaging.WM_SIZING => {
             const area: *util.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
             resize = area.*;
@@ -361,12 +474,15 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
         windows_and_messaging.WM_EXITSIZEMOVE => {
             defer resize = null;
             if (resize) |dim| {
-                return Event{
-                    .resize = .{
-                        .width = @bitCast(dim.right - dim.left),
-                        .height = @bitCast(dim.bottom - dim.top),
+                return .{ .window = .{
+                    .target = @intFromPtr(args[0]),
+                    .event = .{
+                        .resize = .{
+                            .width = @bitCast(dim.right - dim.left),
+                            .height = @bitCast(dim.bottom - dim.top),
+                        },
                     },
-                };
+                } };
             }
         },
         windows_and_messaging.WM_SIZE => {
@@ -377,15 +493,28 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?Event {
 
             const width = @as(u16, @truncate(@as(usize, @bitCast(lparam))));
             const height = @as(u16, @intCast(lparam >> 16));
-            return Event{
-                .resize = .{
-                    .width = width,
-                    .height = height,
+            return .{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .resize = .{
+                        .width = width,
+                        .height = height,
+                    },
                 },
-            };
+            } };
         },
         else => return null,
     }
 
     return null;
+}
+
+fn handleThemeChange(state: ?*anyopaque, settings: *UISettings, _: *IInspectable) void {
+    const event_loop: *@This() = @ptrCast(@alignCast(state));
+
+    if (settings.GetColorValue(.Foreground)) |color| {
+        for (event_loop.windows.values()) |window| {
+            window.setCurrentTheme(if (util.isLight(color)) .light else .dark);
+        }
+    } else |_| {}
 }

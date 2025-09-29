@@ -8,13 +8,14 @@ const notif = core.notification;
 const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 const id = core.menu.id;
 
 pub const App = struct {
     allocator: std.mem.Allocator,
     watch: bool = false,
 
-    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, win: *Window, evt: Event) !void {
+    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, win: *Window, evt: WindowEvent) !void {
         // making it easier to deinitialize the memory allocated for open and save dialogs
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -44,10 +45,6 @@ pub const App = struct {
                     }) catch {};
                 },
                 else => {},
-            },
-            .theme => |theme| switch(theme) {
-                .light => std.debug.print("Now using light theme\n", .{}),
-                .dark => std.debug.print("Now using dark theme\n", .{}),
             },
             else => {},
         }
@@ -84,8 +81,16 @@ pub fn main() !void {
 
     while (event_loop.isActive()) { 
         try event_loop.wait();
-        while (event_loop.pop()) |we| {
-            try app.handleEvent(event_loop, we.window, we.event);
+        while (event_loop.pop()) |e| {
+            switch (e) {
+                .window => |we| {
+                    try app.handleEvent(event_loop, we.target, we.event);
+                },
+                .theme => |theme| switch(theme) {
+                    .light => std.debug.print("Now using light theme\n", .{}),
+                    .dark => std.debug.print("Now using dark theme\n", .{}),
+                },
+            }
         }
     }
 }

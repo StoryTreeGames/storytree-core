@@ -17,9 +17,6 @@ const windows = @import("windows");
 const win32 = windows.win32;
 
 const UISettings = windows.UI.ViewManagement.UISettings;
-const TypedEventHandler = windows.Foundation.TypedEventHandler;
-const IInspectable = windows.Foundation.IInspectable;
-const EventRegistrationToken = windows.Foundation.EventRegistrationToken;
 
 const ole = win32.system.ole;
 const foundation = win32.foundation;
@@ -219,11 +216,8 @@ fullscreen_state: ?struct {
 drag_drop: ?dnd.DropTarget = null,
 drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
 
-ui_settings: *UISettings = undefined,
-theme_change_handler: struct {
-    instance: *TypedEventHandler(UISettings, IInspectable),
-    handle: EventRegistrationToken,
-} = undefined,
+/// Reference to the event loops UISettings instance
+ui_settings: *UISettings,
 
 pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     var buf: [4]u8 = undefined;
@@ -260,7 +254,10 @@ pub fn init(
     const win = try allocator.create(@This());
     errdefer allocator.destroy(win);
 
-    win.* = .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    win.* = .{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .ui_settings = event_loop.ui_settings,
+    };
     const allo = win.arena.allocator();
 
     win.title = try util.utf8ToUtf16Alloc(allo, options.title);
@@ -318,9 +315,6 @@ pub fn init(
         @ptrCast(event_loop), // WM_CREATE lpParam
     ) orelse return error.SystemCreateWindow;
 
-    win.ui_settings = try UISettings.init();
-    errdefer win.ui_settings.deinit();
-
     var value: foundation.BOOL = zig.TRUE;
     win.current_theme = .dark;
     switch (options.theme) {
@@ -343,15 +337,6 @@ pub fn init(
         else => windows_and_messaging.SW_SHOWDEFAULT,
     });
     _ = gdi.UpdateWindow(win.handle);
-
-    const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, win);
-    errdefer cvc_handler.deinit();
-    const cvc_handle = try win.ui_settings.addColorValuesChanged(cvc_handler);
-
-    win.theme_change_handler = .{
-        .instance = cvc_handler,
-        .handle = cvc_handle,
-    };
 
     win.icon = .{ .icon = .default };
     win.cursor = .{ .icon = .default };
@@ -385,11 +370,6 @@ pub fn deinit(self: *@This()) void {
     if (self.cursor == .custom) {
         _ = DestroyCursor(self.cursor.custom.handle);
     }
-
-    // Remove listener for color change in ui settings
-    self.ui_settings.removeColorValuesChanged(self.theme_change_handler.handle) catch {};
-    self.theme_change_handler.instance.deinit();
-    self.ui_settings.deinit();
 
     // Free allocated menu bar memory
     for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
@@ -988,12 +968,4 @@ fn wndProc(
     }
 
     return 0;
-}
-
-fn handleThemeChange(state: ?*anyopaque, settings: *UISettings, _: *IInspectable) void {
-    const window: *@This() = @ptrCast(@alignCast(state));
-
-    if (settings.GetColorValue(.Foreground)) |color| {
-        window.setCurrentTheme(if (util.isLight(color)) .light else .dark);
-    } else |_| {}
 }

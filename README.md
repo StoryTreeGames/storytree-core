@@ -24,7 +24,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 - [ ] Move dialog module to individual repo
 - [ ] Move notification module to individual repo
-- [ ] Update Windows impl to only have one UISettings on the EventLoop that will send an event when the color changes and update all windows that are set to system theme
 
 - [-] Windows
   - [x] Basic window creation
