@@ -6,6 +6,7 @@ const event = core.event;
 const Window = core.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
@@ -30,7 +31,12 @@ pub fn main() !void {
     while (event_loop.isActive()) {
         try event_loop.wait();
         while (event_loop.pop()) |evt| {
-            try state.handleEvent(event_loop, evt.window, evt.event);
+            switch (evt) {
+                .window => |we| {
+                    try state.handleEvent(event_loop, we.target, we.event);
+                },
+                else => {},
+            }
         }
     }
 }
@@ -48,9 +54,12 @@ const State = struct {
         self.platform.deinit();
     }
 
-    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: Event) !void {
+    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
-            .close => event_loop.closeWindow(window.id()),
+            .close => {
+                std.debug.print("Closing Window\n", .{});
+                event_loop.closeWindow(window.id());
+            },
             .resize => |resize| {
                 try self.platform.resize(self.allocator, event_loop, window, resize);
             },

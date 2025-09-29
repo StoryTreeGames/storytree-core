@@ -90,7 +90,12 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             // }
             if (enter.surface) |surface| {
                 el.context.seat.surface = surface;
-                el.queue.append(.{ @intFromPtr(surface), .{ .focused = true } }) catch {};
+                el.queue.append(.{
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{ .focused = true },
+                    },
+                }) catch {};
             }
         },
         .leave => |leave| {
@@ -99,7 +104,12 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             //    surface: ?*client.wl.Surface,
             // }
             if (leave.surface) |surface| {
-                el.queue.append(.{ @intFromPtr(surface), .{ .focused = false } }) catch {};
+                el.queue.append(.{
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{ .focused = false },
+                    },
+                }) catch {};
             }
             el.context.seat.surface = null;
         },
@@ -111,11 +121,13 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             // }
             if (el.context.seat.surface) |surface| {
                 el.queue.append(.{
-                    @intFromPtr(surface),
-                    .{
-                        .mouse_move = .{
-                            .x = @intCast(motion.surface_x.toInt()),
-                            .y = @intCast(motion.surface_y.toInt()),
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{
+                            .mouse_move = .{
+                                .x = @intCast(motion.surface_x.toInt()),
+                                .y = @intCast(motion.surface_y.toInt()),
+                            },
                         },
                     },
                 }) catch {};
@@ -129,14 +141,16 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             // },
             if (el.context.seat.surface) |surface| {
                 el.queue.append(.{
-                    @intFromPtr(surface),
-                    .{
-                        .mouse_scroll = .{
-                            .direction = switch (axis.axis) {
-                                .horizontal_scroll => .horizontal,
-                                else => .vertical,
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{
+                            .mouse_scroll = .{
+                                .direction = switch (axis.axis) {
+                                    .horizontal_scroll => .horizontal,
+                                    else => .vertical,
+                                },
+                                .delta = @intCast(axis.value.toInt()),
                             },
-                            .delta = @intCast(axis.value.toInt()),
                         },
                     },
                 }) catch {};
@@ -162,20 +176,22 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             // }});
             if (el.context.seat.surface) |surface| {
                 el.queue.append(.{
-                    @intFromPtr(surface),
-                    .{
-                        .mouse_input = .{
-                            .state = switch (button.state) {
-                                .released => .released,
-                                else => .pressed,
-                            },
-                            .button = switch (button.button) {
-                                0x110 => .left,
-                                0x111 => .right,
-                                0x112 => .middle,
-                                0x113 => .x2,
-                                0x114 => .x1,
-                                else => .unknown,
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{
+                            .mouse_input = .{
+                                .state = switch (button.state) {
+                                    .released => .released,
+                                    else => .pressed,
+                                },
+                                .button = switch (button.button) {
+                                    0x110 => .left,
+                                    0x111 => .right,
+                                    0x112 => .middle,
+                                    0x113 => .x2,
+                                    0x114 => .x1,
+                                    else => .unknown,
+                                },
                             },
                         },
                     },
@@ -249,7 +265,12 @@ pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoo
             // }
             if (enter.surface) |surface| {
                 el.context.seat.surface = surface;
-                el.queue.append(.{ @intFromPtr(surface), .{ .focused = true } }) catch {};
+                el.queue.append(.{
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{ .focused = true },
+                    },
+                }) catch {};
             }
         },
         .leave => |leave| {
@@ -258,7 +279,12 @@ pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoo
             //     surface: ?*client.wl.Surface,
             // }
             if (leave.surface) |surface| {
-                el.queue.append(.{ @intFromPtr(surface), .{ .focused = false } }) catch {};
+                el.queue.append(.{
+                    .window = .{
+                        .target = @intFromPtr(surface),
+                        .event = .{ .focused = false },
+                    },
+                }) catch {};
             }
             el.context.seat.surface = null;
         },
@@ -286,20 +312,22 @@ pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoo
                         if (n > 0) {
                             if (el.context.seat.surface) |surface| {
                                 el.queue.append(.{
-                                    @intFromPtr(surface),
-                                    .{
-                                        .key_input = .{
-                                            .state = switch (key.state) {
-                                                .released => .released,
-                                                else => .pressed,
-                                            },
-                                            .key = .{ .char = buf },
-                                            .scan = sym,
-                                            .virtual = keycode,
-                                            .modifiers = .{
-                                                .ctrl = seat.mods.ctrl,
-                                                .alt = seat.mods.alt,
-                                                .shift = seat.mods.shift,
+                                    .window = .{
+                                        .target = @intFromPtr(surface),
+                                        .event = .{
+                                            .key_input = .{
+                                                .state = switch (key.state) {
+                                                    .released => .released,
+                                                    else => .pressed,
+                                                },
+                                                .key = .{ .char = buf },
+                                                .scan = sym,
+                                                .virtual = keycode,
+                                                .modifiers = .{
+                                                    .ctrl = seat.mods.ctrl,
+                                                    .alt = seat.mods.alt,
+                                                    .shift = seat.mods.shift,
+                                                },
                                             },
                                         },
                                     },
@@ -325,60 +353,66 @@ pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoo
             if (el.context.seat.surface) |surface| {
                 if (virtual_key) |vk| {
                     el.queue.append(.{
-                        @intFromPtr(surface),
-                        .{
-                            .key_input = .{
-                                .state = switch (key.state) {
-                                    .released => .released,
-                                    else => .pressed,
-                                },
-                                .key = .{ .virtual = vk },
-                                .scan = sym,
-                                .virtual = keycode,
-                                .modifiers = .{
-                                    .ctrl = seat.mods.ctrl,
-                                    .alt = seat.mods.alt,
-                                    .shift = seat.mods.shift,
+                        .window = .{
+                            .target = @intFromPtr(surface),
+                            .event = .{
+                                .key_input = .{
+                                    .state = switch (key.state) {
+                                        .released => .released,
+                                        else => .pressed,
+                                    },
+                                    .key = .{ .virtual = vk },
+                                    .scan = sym,
+                                    .virtual = keycode,
+                                    .modifiers = .{
+                                        .ctrl = seat.mods.ctrl,
+                                        .alt = seat.mods.alt,
+                                        .shift = seat.mods.shift,
+                                    },
                                 },
                             },
                         },
                     }) catch {};
                 } else if (n > 0) {
                     el.queue.append(.{
-                        @intFromPtr(surface),
-                        .{
-                            .key_input = .{
-                                .state = switch (key.state) {
-                                    .released => .released,
-                                    else => .pressed,
-                                },
-                                .key = .{ .char = buf },
-                                .scan = sym,
-                                .virtual = keycode,
-                                .modifiers = .{
-                                    .ctrl = seat.mods.ctrl,
-                                    .alt = seat.mods.alt,
-                                    .shift = seat.mods.shift,
+                        .window = .{
+                            .target = @intFromPtr(surface),
+                            .event = .{
+                                .key_input = .{
+                                    .state = switch (key.state) {
+                                        .released => .released,
+                                        else => .pressed,
+                                    },
+                                    .key = .{ .char = buf },
+                                    .scan = sym,
+                                    .virtual = keycode,
+                                    .modifiers = .{
+                                        .ctrl = seat.mods.ctrl,
+                                        .alt = seat.mods.alt,
+                                        .shift = seat.mods.shift,
+                                    },
                                 },
                             },
                         },
                     }) catch {};
                 } else {
                     el.queue.append(.{
-                        @intFromPtr(surface),
-                        .{
-                            .key_input = .{
-                                .state = switch (key.state) {
-                                    .released => .released,
-                                    else => .pressed,
-                                },
-                                .key = .{ .virtual = .unknown },
-                                .scan = sym,
-                                .virtual = keycode,
-                                .modifiers = .{
-                                    .ctrl = seat.mods.ctrl,
-                                    .alt = seat.mods.alt,
-                                    .shift = seat.mods.shift,
+                        .window = .{
+                            .target = @intFromPtr(surface),
+                            .event = .{
+                                .key_input = .{
+                                    .state = switch (key.state) {
+                                        .released => .released,
+                                        else => .pressed,
+                                    },
+                                    .key = .{ .virtual = .unknown },
+                                    .scan = sym,
+                                    .virtual = keycode,
+                                    .modifiers = .{
+                                        .ctrl = seat.mods.ctrl,
+                                        .alt = seat.mods.alt,
+                                        .shift = seat.mods.shift,
+                                    },
                                 },
                             },
                         },

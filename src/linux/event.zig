@@ -9,7 +9,7 @@ const Window = @import("window.zig");
 const WindowOptions = @import("../window.zig").Options;
 const EventQueue = @import("../event.zig").EventQueue;
 const Context = @import("context.zig");
-const WindowEvent = @import("../event.zig").WindowEvent;
+const Event = @import("../event.zig").Event;
 
 arena: std.heap.ArenaAllocator,
 
@@ -111,11 +111,20 @@ pub fn poll(self: *@This()) !void {
     }
 }
 
-pub fn pop(self: *@This()) ?WindowEvent {
-    while (self.queue.pop()) |data| {
-        if (self.windows.get(data[0])) |win| {
-            return .{ .window = win, .event = data[1] };
-        }
+pub fn pop(self: *@This()) ?Event {
+    switch (self.queue.pop() orelse return null) {
+        .theme => |theme| return .{ .theme = theme },
+        .destroy => |key| if (self.windows.fetchSwapRemove(key)) |window| {
+            window.value.deinit();
+        },
+        .window => |we| if (self.windows.get(we.target)) |window| {
+            return .{
+                .window = .{
+                    .target = window,
+                    .event = we.event,
+                },
+            };
+        },
     }
     return null;
 }

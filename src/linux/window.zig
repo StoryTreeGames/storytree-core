@@ -11,6 +11,7 @@ const Visibility = @import("../window.zig").Visibility;
 const Context = @import("context.zig");
 const EventLoop = @import("../event.zig").EventLoop;
 const Event = @import("../event.zig").Event;
+const QueuedEvent = @import("../event.zig").QueuedEvent;
 const EventQueue = @import("../event.zig").EventQueue;
 
 const Rect = @import("../root.zig").Rect;
@@ -287,11 +288,13 @@ pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, s
                     const w = if (dirty.width > 0) dirty.width else self.width;
                     const h = if (dirty.height > 0) dirty.height else self.height;
                     self.event_loop.queue.append(.{
-                        @intFromPtr(self.surface),
-                        .{
-                            .resize = .{
-                                .width = @intCast(w),
-                                .height = @intCast(h),
+                        .window = .{
+                            .target = @intFromPtr(self.surface),
+                            .event = .{
+                                .resize = .{
+                                    .width = @intCast(w),
+                                    .height = @intCast(h),
+                                },
                             },
                         },
                     }) catch {};
@@ -303,11 +306,13 @@ pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, s
             } else {
                 self.configured = true;
                 self.event_loop.queue.append(.{
-                    @intFromPtr(self.surface),
-                    .{
-                        .resize = .{
-                            .width = @intCast(self.width),
-                            .height = @intCast(self.height),
+                    .window = .{
+                        .target = @intFromPtr(self.surface),
+                        .event = .{
+                            .resize = .{
+                                .width = @intCast(self.width),
+                                .height = @intCast(self.height),
+                            },
                         },
                     },
                 }) catch {};
@@ -338,8 +343,10 @@ pub fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, self: *@
             }
         },
         .close => self.event_loop.queue.append(.{
-            @intFromPtr(self.surface),
-            Event.close,
+            .window = .{
+                .target = @intFromPtr(self.surface),
+                .event = .close,
+            },
         }) catch {},
     }
 }
