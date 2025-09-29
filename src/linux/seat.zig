@@ -1,15 +1,31 @@
 const std = @import("std");
+
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
+const wp = wayland.client.wp;
+
+const wl_cursor = @cImport({
+    @cInclude("wayland-cursor.h");
+});
+
 const EventLoop = @import("event.zig");
 const input = @import("input.zig");
+
+const cursorToShape = @import("cursor.zig").cursorToShape;
+const cursorToName = @import("cursor.zig").cursorToName;
 
 const xkbcommon = @cImport({
     @cInclude("xkbcommon/xkbcommon.h");
     @cInclude("xkbcommon/xkbcommon-compose.h");
 });
 
+const CursorType = @import("../cursor.zig").CursorType;
+
 _seat: *wl.Seat,
+
+cursor_shape_device: ?*wp.CursorShapeDeviceV1 = null,
+cursor_theme: ?*wl_cursor.wl_cursor_theme = null,
+cursor_surface: ?*wl.Surface = null,
 
 pointer: ?*wl.Pointer = null,
 keyboard: ?*wl.Keyboard = null,
@@ -19,7 +35,6 @@ keymap: ?*xkbcommon.xkb_keymap = null,
 key_state: ?*xkbcommon.xkb_state = null,
 
 surface: ?*wl.Surface = null,
-
 compose: Compose = .{},
 
 mods: Mods = .{},
@@ -47,13 +62,45 @@ const Compose = struct {
 };
 
 pub fn deinit(self: *@This()) void {
+    if (self.kctx) |o| xkbcommon.xkb_context_unref(o);
     if (self.key_state) |o| xkbcommon.xkb_state_unref(o);
     if (self.keymap) |o| xkbcommon.xkb_keymap_unref(o);
+    if (self.cursor_surface) |o| o.destroy();
+    if (self.cursor_theme) |o| wl_cursor.wl_cursor_theme_destroy(o);
+    if (self.cursor_shape_device) |o| o.destroy();
+
+    self.kctx = null;
     self.key_state = null;
     self.keymap = null;
 
+    self.cursor_theme = null;
+    self.cursor_shape_device = null;
+    self.cursor_surface = null;
+
     self.compose.deinit();
     self._seat.destroy();
+}
+
+fn setTheme(self: *@This(), serial: u32, cursor: CursorType) void {
+    if (self.pointer == null or self.cursor_theme == null or self.cursor_surface == null) return;
+
+    const names = cursorToName(cursor);
+    for (0..names.len) |i| {
+        if (@as(?*wl.Cursor, @ptrCast(wl_cursor.wl_cursor_theme_get_cursor(self.cursor_theme.?, names[i])))) |cur| {
+            const img = cur.images[0];
+            if (img.getBuffer()) |buf| {
+                // Scale + hotspot are in surface coords
+                // wl.client.wl_surface.set_buffer_scale(self.cursor_surface.?, self.scale);
+                const hx: i32 = @intCast(img.hotspot_x);
+                const hy: i32 = @intCast(img.hotspot_y);
+
+                self.cursor_surface.?.attach(buf, hx, hy);
+                self.cursor_surface.?.commit();
+                self.pointer.?.setCursor(serial, self.cursor_surface, hx, hy);
+                return;
+            } else |_| {}
+        }
+    }
 }
 
 pub fn capabilitiesListener(wl_seat: *wl.Seat, event: wl.Seat.Event, el: *EventLoop) void {
@@ -66,6 +113,29 @@ pub fn capabilitiesListener(wl_seat: *wl.Seat, event: wl.Seat.Event, el: *EventL
             } else if (!c.capabilities.pointer and seat.pointer != null) {
                 seat.pointer.?.destroy();
                 seat.pointer = null;
+            }
+
+            if (el.context.cursor_mng) |cm| {
+                if (c.capabilities.pointer and seat.cursor_shape_device == null) {
+                    if (cm.getPointer(seat.pointer.?)) |d| {
+                        seat.cursor_shape_device = d;
+                    } else |_| {}
+                } else if (!c.capabilities.pointer and seat.cursor_shape_device != null) {
+                    seat.cursor_shape_device.?.destroy();
+                    seat.cursor_shape_device = null;
+                }
+            } else {
+                if (c.capabilities.pointer and seat.cursor_surface == null) {
+                    if (seat.cursor_theme == null) {
+                        seat.cursor_theme = wl_cursor.wl_cursor_theme_load(null, 24, @ptrCast(el.context.shm));
+                    }
+                    if (el.context.compositor.createSurface()) |surface| {
+                        seat.cursor_surface = surface;
+                    } else |_| {}
+                } else if (!c.capabilities.pointer and seat.cursor_surface != null) {
+                    seat.cursor_surface.?.destroy();
+                    seat.cursor_surface = null;
+                }
             }
 
             if (c.capabilities.keyboard and seat.keyboard == null) {
@@ -88,7 +158,19 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
             //     surface_x: common.Fixed,
             //     surface_y: common.Fixed,
             // }
+
             if (enter.surface) |surface| {
+                if (el.windows.get(@intFromPtr(enter.surface))) |window| {
+                    switch (window.cursor) {
+                        .icon => |ico| if (el.context.seat.cursor_shape_device) |device| {
+                            device.setShape(enter.serial, cursorToShape(ico));
+                        } else {
+                            setTheme(&el.context.seat, enter.serial, ico);
+                        },
+                        else => {}, // TODO: Implement custom cursor shape
+                    }
+                }
+
                 el.context.seat.surface = surface;
                 el.queue.append(.{
                     .window = .{

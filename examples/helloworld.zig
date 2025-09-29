@@ -24,7 +24,8 @@ pub fn main() !void {
         .title = "Hello, world",
         .width = 800,
         .height = 600,
-        .icon = .{ .custom = "examples\\assets\\icon.ico" },
+        .icon = .{ .custom = "examples\\assets\\icon.ico" }, // Doesn't work yet in linux
+        .cursor = .{ .icon = .progress },
     });
     window.show();
 

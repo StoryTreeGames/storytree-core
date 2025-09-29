@@ -4,6 +4,7 @@ const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const xdg = wayland.client.xdg;
 const zxdg = wayland.client.zxdg;
+const wp = wayland.client.wp;
 
 const Options = @import("../window.zig").Options;
 const Handles = @import("../window.zig").Handles;
@@ -13,6 +14,7 @@ const EventLoop = @import("../event.zig").EventLoop;
 const Event = @import("../event.zig").Event;
 const QueuedEvent = @import("../event.zig").QueuedEvent;
 const EventQueue = @import("../event.zig").EventQueue;
+const CursorType = @import("../cursor.zig").CursorType;
 
 const Rect = @import("../root.zig").Rect;
 
@@ -34,6 +36,16 @@ const Deco = struct {
     }
 };
 
+const Cursor = union(enum) {
+    icon: CursorType,
+    custom: struct {
+        // TODO: Store data for referencing the custom cursor
+        //        probably a buffer
+        width: i32,
+        height: i32,
+    },
+};
+
 title: ?[*:0]u8 = null,
 width: i32 = 0,
 height: i32 = 0,
@@ -50,6 +62,7 @@ event_loop: *EventLoop,
 
 surface: *wl.Surface = undefined,
 desktop: Xdg = .{},
+cursor: Cursor = .{ .icon = .default },
 
 pub fn init(allocator: std.mem.Allocator, event_loop: *EventLoop, options: Options) !*@This() {
     const self = try allocator.create(@This());
@@ -70,6 +83,11 @@ pub fn init(allocator: std.mem.Allocator, event_loop: *EventLoop, options: Optio
     // Create Surface
     self.surface = try event_loop.context.compositor.createSurface();
     errdefer self.surface.destroy();
+
+    switch (options.cursor) {
+        .icon => |ico| self.cursor = .{ .icon = ico },
+        else => {}, // TODO: Implement custom cursor icon
+    }
 
     // Create toplevel shell surface. Handles adding titlebar with buttons
     self.desktop.surface = try event_loop.context.base.getXdgSurface(self.surface);
@@ -128,25 +146,6 @@ pub fn handles(self: *const @This()) Handles {
         .parent = @ptrCast(self.event_loop.display),
         .target = @ptrCast(self.surface),
     };
-}
-
-/// Can set the icon with pixels for different sizes
-///
-/// Or can set it with a `.desktop` file with the `[Desktop Entry]` section
-/// and the `Icon=com.example.MyApp` entry. This will tell the compositor to
-/// look for an icon at `/usr/share/icons/<size>/apps/com.example.MyApp.png`.
-/// This is how most apps choose to set the icon.
-///
-/// Newer wayland protocals allow for per window icons with name lookups or
-/// with buffers of pixels. This library uses buffers of pixels and loads in the
-/// image to try to make the API platform agnostic.
-pub fn setIcon(self: *@This()) void {
-    _ = self;
-    // Currently not implemented and is just a noop for compatibility with other
-    // platforms. The user should opt to use `.desktop` files instead where possible
-
-    // In the future this function may implement the xdg_toplevel_icon_manager_v1
-    // protocal to set custom icons for every window.
 }
 
 /// Set window title
@@ -209,6 +208,30 @@ pub fn getClientRect(self: *@This()) Rect(u32) {
     };
 }
 
+// /// Can set the icon with pixels for different sizes
+// ///
+// /// Or can set it with a `.desktop` file with the `[Desktop Entry]` section
+// /// and the `Icon=com.example.MyApp` entry. This will tell the compositor to
+// /// look for an icon at `/usr/share/icons/<size>/apps/com.example.MyApp.png`.
+// /// This is how most apps choose to set the icon.
+// ///
+// /// Newer wayland protocals allow for per window icons with name lookups or
+// /// with buffers of pixels. This library uses buffers of pixels and loads in the
+// /// image to try to make the API platform agnostic.
+// pub fn setIcon(self: *@This()) void {
+//     _ = self;
+//     // Currently not implemented and is just a noop for compatibility with other
+//     // platforms. The user should opt to use `.desktop` files instead where possible
+//
+//     // In the future this function may implement the xdg_toplevel_icon_manager_v1
+//     // protocal to set custom icons for every window.
+// }
+
+// /// Set window cursor
+// pub fn setCursor(self: *@This(), new_cursor: Cursor) !void {
+//     try self.impl.setCursor(self.arena.allocator(), new_cursor);
+// }
+
 // /// Get the windows configured theme
 // pub fn getTheme(self: *@This()) Theme {
 //     return self.impl.getTheme();
@@ -217,11 +240,6 @@ pub fn getClientRect(self: *@This()) Rect(u32) {
 // /// Get the windows current theme
 // pub fn getCurrentTheme(self: *@This()) Theme {
 //     return self.impl.getCurrentTheme();
-// }
-
-// /// Set window cursor
-// pub fn setCursor(self: *@This(), new_cursor: Cursor) !void {
-//     try self.impl.setCursor(self.arena.allocator(), new_cursor);
 // }
 
 // /// Set the cursors position relative to the window

@@ -51,6 +51,7 @@ pub fn build(b: *std.Build) !void {
             const Scanner = @import("wayland").Scanner;
 
             module.linkSystemLibrary("wayland-client", .{});
+            module.linkSystemLibrary("wayland-cursor", .{});
             // TODO: Remove this in favor of https://codeberg.org/ifreund/zig-xkbcommon when
             //        is updated to zig v0.15.1
             module.linkSystemLibrary("xkbcommon", .{});
@@ -64,6 +65,10 @@ pub fn build(b: *std.Build) !void {
 
             // Stable
             scanner.addSystemProtocol("stable/xdg-shell/xdg-shell.xml");
+            scanner.addSystemProtocol("stable/tablet/tablet-v2.xml");
+
+            // Staging
+            scanner.addSystemProtocol("staging/cursor-shape/cursor-shape-v1.xml");
 
             // Unstable
             scanner.addSystemProtocol("unstable/xdg-decoration/xdg-decoration-unstable-v1.xml");
@@ -73,6 +78,7 @@ pub fn build(b: *std.Build) !void {
             scanner.generate("wl_output", 1);
             scanner.generate("xdg_wm_base", 1);
             scanner.generate("zxdg_decoration_manager_v1", 1);
+            scanner.generate("wp_cursor_shape_manager_v1", 1);
 
             scanner.generate("wl_seat", 1);
 

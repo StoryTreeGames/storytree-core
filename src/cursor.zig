@@ -42,47 +42,47 @@ pub const Cursor = union(enum) {
     pub const Alias: @This() = .{ .icon = .alias };
     pub const Copy: @This() = .{ .icon = .copy };
     pub const ZoomIn: @This() = .{ .icon = .zoom_in };
+    pub const ZoomOut: @This() = .{ .icon = .zoom_out };
 };
 
 pub const CursorType = enum(u8) {
     default,
+    context_menu,
+    help,
     pointer,
+    progress,
+    wait,
+    cell,
     crosshair,
     text,
     vertical_text,
-    not_allowed,
-    no_drop,
-    grab,
-    grabbing,
-    all_scroll,
-    move,
-    e_resize,
-    w_resize,
-    ew_resize,
-    col_resize,
-    n_resize,
-    s_resize,
-    ns_resize,
-    row_resize,
-    ne_resize,
-    sw_resize,
-    nesw_resize,
-    nw_resize,
-    se_resize,
-    nwse_resize,
-    wait,
-    help,
-    progress,
-
-    // all default to idc_arrow
-    context_menu,
-    cell,
     alias,
     copy,
+    move,
+    no_drop,
+    not_allowed,
+    grab,
+    grabbing,
+    e_resize,
+    n_resize,
+    ne_resize,
+    nw_resize,
+    s_resize,
+    se_resize,
+    sw_resize,
+    w_resize,
+    ew_resize,
+    ns_resize,
+    nesw_resize,
+    nwse_resize,
+    col_resize,
+    row_resize,
+    all_scroll,
     zoom_in,
+    zoom_out,
 };
 
-const impl = switch(@import("builtin").os.tag) {
+const impl = switch (@import("builtin").os.tag) {
     .windows => @import("windows/cursor.zig"),
     else => @compileError("platform not supported"),
 };

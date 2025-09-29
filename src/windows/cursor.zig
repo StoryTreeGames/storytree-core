@@ -46,6 +46,7 @@ pub fn cursorToResource(cursor: CursorType) [*:0]align(1) const u16 {
         .alias => wam.IDC_ARROW,
         .copy => wam.IDC_ARROW,
         .zoom_in => wam.IDC_ARROW,
+        .zoom_out => wam.IDC_ARROW,
     };
 }
 
