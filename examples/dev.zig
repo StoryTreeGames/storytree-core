@@ -6,7 +6,7 @@ const input = core.input;
 
 const Window = core.window.Window;
 const EventLoop = event.EventLoop;
-const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 
 const State = struct {
     allocator: std.mem.Allocator,
@@ -14,7 +14,7 @@ const State = struct {
     pos: enum { tl, tr, bl, br } = .tl,
     fullscreen: bool = false,
 
-    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: Event) !void {
+    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
             .close => {
                 if (core.dialog.message(.yes_no, .{ .icon = .warning, .title = "Exit", .message = "Are you sure you want to exit the application?" }) == .yes) {
@@ -24,7 +24,8 @@ const State = struct {
             .key_input => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
                 if (key_event.matches(.f11, .{})) {
-                    try window.setFullScreen(!self.fullscreen);
+                    if (self.fullscreen) window.restore()
+                    else try window.fullscreen();
                     self.fullscreen = !self.fullscreen;
                 }
 
@@ -150,8 +151,10 @@ pub fn main() !void {
 
     while (event_loop.isActive()) {
         try event_loop.wait();
-        while (event_loop.pop()) |we| {
-            try state.handleEvent(event_loop, we.window, we.event);
+        while (event_loop.pop()) |e| {
+            if (e == .window) {
+                try state.handleEvent(event_loop, e.window.target, e.window.event);
+            }
         }
     }
 }

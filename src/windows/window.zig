@@ -437,7 +437,7 @@ pub fn maximize(self: *const @This()) void {
 }
 
 /// Restore the window to its default windowed state
-pub fn restore(self: *const @This()) void {
+pub fn restore(self: *@This()) void {
     if (self.fullscreen_state) |old| {
         _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(old.style));
         _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(old.ex_style));

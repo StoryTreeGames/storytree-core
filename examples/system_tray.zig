@@ -16,9 +16,9 @@ const id = menu.id;
 
 const Window = core.window.Window;
 const EventLoop = event.EventLoop;
-const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 
-pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: Event) !void {
+pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
     switch (evt) {
         .close => event_loop.closeWindow(window.id()),
         .system_tray => |e| {
@@ -73,8 +73,10 @@ pub fn main() !void {
 
     while (event_loop.isActive()) {
         try event_loop.wait();
-        while (event_loop.pop()) |we| {
-            try handleEvent(event_loop, we.window, we.event);
+        while (event_loop.pop()) |e| {
+            if (e == .window) {
+                try handleEvent(event_loop, e.window.target, e.window.event);
+            }
         }
     }
 }
