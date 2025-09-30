@@ -116,6 +116,8 @@ pub const WindowEvent = union(enum) {
     menu: MenuEvent,
     /// SysTray Menu item event
     system_tray: MenuEvent,
+    /// Thumb bar item event
+    thumb: u32,
 };
 
 pub const ThemeEvent = enum { light, dark };

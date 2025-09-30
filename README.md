@@ -67,6 +67,10 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [x] Menu
   - [x] Set App ID
   - [ ] Start Menu shortcut for things like associating notifications
+  - [-] Platform Specific
+    - [x] Taskbar
+        - [x] Progress
+        - [x] Buttons
 
 - [ ] Wayland
   - [-] Basic window creation
@@ -112,6 +116,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [ ] Title Bar
   - [x] Set App ID
   - [ ] Menu
+  - [ ] Platform Specific
 
 - [ ] MacOS
   - [ ] Basic window creation

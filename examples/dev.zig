@@ -1,4 +1,5 @@
 const std = @import("std");
+const TargetTag = @import("builtin").target.os.tag;
 
 const core = @import("storytree-core");
 const event = core.event;
@@ -10,9 +11,13 @@ const WindowEvent = event.WindowEvent;
 
 const State = struct {
     allocator: std.mem.Allocator,
+    icons: []const []const u8,
     cursor: core.cursor.Cursor = .Default,
     pos: enum { tl, tr, bl, br } = .tl,
     fullscreen: bool = false,
+
+    playing: bool = false,
+    progress: u64 = 0,
 
     pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
@@ -21,11 +26,35 @@ const State = struct {
                     event_loop.closeWindow(window.id());
                 }
             },
+            .thumb => |thumb| {
+                // The windows thumb bar buttons have IDs equal to the index they were defined
+                // when calling `window.setThumbBar([]ThumbBar.Button)`
+                switch (thumb) {
+                    // Prev
+                    0 => { std.debug.print("Previous\n", .{}); },
+                    // Play/Pause
+                    1 => { 
+                        std.debug.print("Play/Pause\n", .{}); 
+                        self.playing = !self.playing;
+                        if (self.playing) {
+                            std.debug.print("Set Icon To Pause\n", .{});
+                            try window.taskbar.updateIcon(1, .{ .custom = self.icons[2] });
+                            try window.taskbar.updateTooltip(1, "Pause");
+                        } else {
+                            std.debug.print("Set Icon To Play\n", .{});
+                            try window.taskbar.updateIcon(1, .{ .custom = self.icons[1] });
+                            try window.taskbar.updateTooltip(1, "Play");
+                        }
+                    },
+                    // Next
+                    2 => { std.debug.print("Next\n", .{}); },
+                    else =>{}
+                }
+            },
             .key_input => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
                 if (key_event.matches(.f11, .{})) {
-                    if (self.fullscreen) window.restore()
-                    else try window.fullscreen();
+                    if (self.fullscreen) window.restore() else try window.fullscreen();
                     self.fullscreen = !self.fullscreen;
                 }
 
@@ -58,6 +87,15 @@ const State = struct {
                 }
 
                 if (key_event.matches(.right, .{})) {
+                    self.progress = @min(100, self.progress +| 10);
+                    if (TargetTag == .windows) {
+                        try window.setTaskbarProgress(
+                            if (self.progress == 100) .ERROR else .NORMAL,
+                            self.progress,
+                            100,
+                        );
+                    }
+
                     const client = window.getClientRect();
                     switch (self.pos) {
                         .tl, .tr => {
@@ -72,6 +110,14 @@ const State = struct {
                 }
 
                 if (key_event.matches(.left, .{})) {
+                    self.progress -|= 10;
+                    if (TargetTag == .windows) {
+                        try window.setTaskbarProgress(
+                            if (self.progress == 0) .INDETERMINATE else .NORMAL,
+                            self.progress,
+                            100,
+                        );
+                    }
                     const client = window.getClientRect();
                     switch (self.pos) {
                         .tl, .tr => {
@@ -138,16 +184,51 @@ pub fn main() !void {
         \\
     , .{});
 
-    var state: State = .{ .allocator = allocator };
+    const prev_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/skip-previous.ico");
+    const play_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/play.ico");
+    const pause_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/pause.ico");
+    const next_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/skip-next.ico");
+
+    defer allocator.free(prev_icon);
+    defer allocator.free(play_icon);
+    defer allocator.free(pause_icon);
+    defer allocator.free(next_icon);
+
+    var state: State = .{
+        .icons = &.{
+            prev_icon,
+            play_icon,
+            pause_icon,
+            next_icon,
+        },
+        .allocator = allocator
+    };
 
     const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.icon)});
-    _ = try event_loop.createWindow(.{
+    const win = try event_loop.createWindow(.{
         .title = title,
         .width = 800,
         .height = 600,
         .icon = .{ .custom = "examples\\assets\\icon.ico" },
     });
     allocator.free(title);
+
+
+    if (TargetTag == .windows) {
+        try win.setThumbBar(&.{ .{
+            .icon = .{ .custom = prev_icon },
+            .tooltip = "Prev",
+            .dismiss_on_click = true,
+        }, .{
+            .icon = .{ .custom = play_icon },
+            .tooltip = "Play",
+            .dismiss_on_click = true,
+        }, .{
+            .icon = .{ .custom = next_icon },
+            .tooltip = "Next",
+            .dismiss_on_click = true,
+        } });
+    }
 
     while (event_loop.isActive()) {
         try event_loop.wait();

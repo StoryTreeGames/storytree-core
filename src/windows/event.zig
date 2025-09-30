@@ -25,6 +25,18 @@ const Event = event.Event;
 const QueuedEvent = event.QueuedEvent;
 const EventHandler = event.EventHandler;
 
+const MSG = windows_and_messaging.MSG;
+const GetMessageW = windows_and_messaging.GetMessageW;
+const PeekMessageW = windows_and_messaging.PeekMessageW;
+const TranslateMessage = windows_and_messaging.TranslateMessage;
+const DispatchMessageW = windows_and_messaging.DispatchMessageW;
+const CheckMenuItem = windows_and_messaging.CheckMenuItem;
+const CheckMenuRadioItem = windows_and_messaging.CheckMenuRadioItem;
+const PM_REMOVE = windows_and_messaging.PM_REMOVE;
+const INFINITE = win32.system.windows_programming.INFINITE;
+const QS_ALLINPUT = win32.ui.windows_and_messaging.QS_ALLINPUT;
+const MWMO_INPUTAVAILABLE = win32.ui.windows_and_messaging.MWMO_INPUTAVAILABLE;
+
 const VIRTUAL_KEY = keyboard_and_mouse.VIRTUAL_KEY;
 const VK_CONTROL = keyboard_and_mouse.VK_CONTROL;
 const VK_LCONTROL = keyboard_and_mouse.VK_LCONTROL;
@@ -157,40 +169,45 @@ pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, is
 ///
 /// The choice to drain all currently queued events comes from how linux (wayland) dispatches
 /// all queued events regardless of blocking or not.
-pub fn poll(self: *@This()) !void {
-    _ = self;
-    var message: windows_and_messaging.MSG = undefined;
-    while (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
-        _ = windows_and_messaging.TranslateMessage(&message);
-        _ = windows_and_messaging.DispatchMessageW(&message);
+pub fn poll(_: *@This()) !void {
+    var message: MSG = undefined;
+    while (PeekMessageW(&message, null, 0, 0, PM_REMOVE) != 0) {
+        if (message.message == windows_and_messaging.WM_QUIT) break;
+        _ = TranslateMessage(&message);
+        _ = DispatchMessageW(&message);
     }
 }
 
 /// Block the event loop until the next event draining all queued window events
 ///
 /// This will translate all events and append them to the event loops queue.
-pub fn wait(self: *@This()) !void {
-    _ = self;
-    var message: windows_and_messaging.MSG = undefined;
-    if (windows_and_messaging.GetMessageW(&message, null, 0, 0) != 0) {
-        _ = windows_and_messaging.TranslateMessage(&message);
-        _ = windows_and_messaging.DispatchMessageW(&message);
-    }
+pub fn wait(_: *@This()) !void {
+    // Use this to wait for messages to avoid a problem with GetMessageW
+    // not waking when no app windows are focused
+    _ = win32.ui.windows_and_messaging.MsgWaitForMultipleObjectsEx(
+        0,
+        null,
+        INFINITE,
+        QS_ALLINPUT,
+        MWMO_INPUTAVAILABLE,
+    );
 
+    var message: MSG = undefined;
     // DRAIN PHASE: flush any follow-up messages triggered by the handler
-    while (windows_and_messaging.PeekMessageW(&message, null, 0, 0, windows_and_messaging.PM_REMOVE) != 0) {
-        _ = windows_and_messaging.TranslateMessage(&message);
-        _ = windows_and_messaging.DispatchMessageW(&message);
+    while (PeekMessageW(&message, null, 0, 0, PM_REMOVE) != 0) {
+        if (message.message == windows_and_messaging.WM_QUIT) break;
+        _ = TranslateMessage(&message);
+        _ = DispatchMessageW(&message);
     }
 }
 
 pub fn toggleMenuItem(id: u32, item: *MenuInfo, state: bool) void {
     switch (item.payload) {
         .toggle => {
-            _ = windows_and_messaging.CheckMenuItem(@ptrCast(@alignCast(item.menu)), id, if (state) 0x8 else 0x0);
+            _ = CheckMenuItem(@ptrCast(@alignCast(item.menu)), id, if (state) 0x8 else 0x0);
         },
         .radio => |r| {
-            _ = windows_and_messaging.CheckMenuRadioItem(@ptrCast(@alignCast(item.menu)), @intCast(r.group[0]), @intCast(r.group[0]), id, 0x0);
+            _ = CheckMenuRadioItem(@ptrCast(@alignCast(item.menu)), @intCast(r.group[0]), @intCast(r.group[0]), id, 0x0);
         },
         else => {},
     }
@@ -240,6 +257,10 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
         windows_and_messaging.WM_CLOSE => {
             return .{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } };
         },
+        windows_and_messaging.WM_SYSCOMMAND => {
+            if ((wparam & 0xFFF0) == windows_and_messaging.SC_CLOSE)
+                return .{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } };
+        },
         windows_and_messaging.WM_DESTROY => {
             return .{ .destroy = @intFromPtr(args[0]) };
         },
@@ -286,6 +307,13 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                         },
                     } };
                 }
+            } else if (wmEvent == 0x1800) {
+                return .{ .window = .{
+                    .target = @intFromPtr(args[0]),
+                    .event = .{
+                        .thumb = @intCast(wmId),
+                    },
+                } };
             }
         },
         // Keyboard input events

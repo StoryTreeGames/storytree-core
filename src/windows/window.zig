@@ -2,6 +2,8 @@
 
 const std = @import("std");
 
+const TaskBar = @import("taskbar.zig");
+
 const Rect = @import("../root.zig").Rect;
 
 const dnd = @import("../drag_drop.zig");
@@ -153,7 +155,12 @@ pub const MenuContext = struct {
                 },
             },
         });
-        if (windows_and_messaging.AppendMenuA(self.current, if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED, self.count.*, label.ptr) == 0) {
+        if (windows_and_messaging.AppendMenuA(
+            self.current,
+            if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED,
+            self.count.*,
+            label.ptr,
+        ) == 0) {
             return error.AppendMenuRadioItem;
         }
     }
@@ -168,7 +175,12 @@ pub const MenuContext = struct {
                 .menu_item => |subMenu| {
                     const innerMenu = windows_and_messaging.CreatePopupMenu().?;
                     try self.menus.append(self.allocator, innerMenu);
-                    if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_POPUP, @intFromPtr(innerMenu), subMenu.label.ptr) == 0) {
+                    if (windows_and_messaging.AppendMenuA(
+                        self.current,
+                        windows_and_messaging.MF_POPUP,
+                        @intFromPtr(innerMenu),
+                        subMenu.label.ptr,
+                    ) == 0) {
                         return error.AppendMenuSubmenu;
                     }
 
@@ -216,28 +228,10 @@ fullscreen_state: ?struct {
 drag_drop: ?dnd.DropTarget = null,
 drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
 
+taskbar: TaskBar = undefined,
+
 /// Reference to the event loops UISettings instance
 ui_settings: *UISettings,
-
-pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    var buf: [4]u8 = undefined;
-
-    try writer.writeAll("Window { title: '");
-    var title = std.unicode.Utf16LeIterator.init(value.title);
-    while (try title.nextCodePoint()) |cp| {
-        const len = try std.unicode.utf8Encode(cp, &buf);
-        try writer.writeAll(buf[0..len]);
-    }
-
-    try writer.writeAll("', class: '");
-    var class = std.unicode.Utf16LeIterator.init(value.class);
-    while (try class.nextCodePoint()) |cp| {
-        const len = try std.unicode.utf8Encode(cp, &buf);
-        try writer.writeAll(buf[0..len]);
-    }
-
-    try writer.writeAll("' }");
-}
 
 /// Create a new window
 ///
@@ -345,8 +339,11 @@ pub fn init(
     try win.setCursor(options.cursor);
     try win.setIcon(options.icon);
 
+    win.taskbar = try TaskBar.init(win.handle);
+
     if (options.show == .fullscreen) {
         win.fullscreen() catch {};
+        _ = win.taskbar.markFullscreen(win.handle, true);
     }
 
     return win;
@@ -371,6 +368,8 @@ pub fn deinit(self: *@This()) void {
         _ = DestroyCursor(self.cursor.custom.handle);
     }
 
+    self.taskbar.deinit(self.arena.allocator());
+
     // Free allocated menu bar memory
     for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
 
@@ -380,6 +379,14 @@ pub fn deinit(self: *@This()) void {
     const parent = self.arena.child_allocator;
     self.arena.deinit();
     parent.destroy(self);
+}
+
+pub fn setThumbBar(self: *@This(), buttons: []const TaskBar.Button) !void {
+    try self.taskbar.addButtons(self.arena.allocator(), buttons);
+}
+
+pub fn setTaskbarProgress(self: *@This(), state: TaskBar.TBPFLAG, completed: u64, total: u64) !void {
+    try self.taskbar.setProgress(state, completed, total);
 }
 
 pub fn id(self: *const @This()) usize {
@@ -457,6 +464,8 @@ pub fn restore(self: *@This()) void {
         }
 
         self.fullscreen_state = null;
+
+        _ = self.taskbar.markFullscreen(self.handle, false);
     } else {
         showWindow(self.handle, .restore);
     }
@@ -670,6 +679,8 @@ pub fn fullscreen(self: *@This()) !void {
             windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
         );
     }
+
+    _ = self.taskbar.markFullscreen(self.handle, true);
 }
 
 /// Get the current area that is used for rendering
