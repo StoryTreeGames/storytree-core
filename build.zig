@@ -7,13 +7,13 @@ const EXAMPLES = "examples";
 
 const examples = [_]Example{
     .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
-    .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
+    // .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
     .{ .name = "dialog", .path = EXAMPLES ++ "/dialog.zig" },
     .{ .name = "window_menu", .path = EXAMPLES ++ "/menu.zig" },
     .{ .name = "notification", .path = EXAMPLES ++ "/notification.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
-    .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
+    // .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
 };
 
@@ -36,6 +36,12 @@ pub fn build(b: *std.Build) !void {
     try deps.append(b.allocator, .{ .name = NAME, .module = module });
     try deps.append(b.allocator, .{ .name = "uuid", .module = uuid.module("uuid") });
     try deps.append(b.allocator, .{ .name = "wgpu", .module = wgpu_native.module("wgpu") });
+
+    var assets_dir = b.addInstallDirectory(.{
+        .source_dir = b.path("examples/assets"),
+        .install_dir = .bin,
+        .install_subdir = "assets",
+    });
 
     module.addImport("uuid", uuid.module("uuid"));
     switch (builtin.target.os.tag) {
@@ -111,6 +117,7 @@ pub fn build(b: *std.Build) !void {
             &.{
                 .{ "wayland-client", .linux },
             },
+            &assets_dir.step,
         );
     }
 }
@@ -128,6 +135,7 @@ pub fn addExample(
     imports: []const std.Build.Module.Import,
     link_lib_c: bool,
     system_libraries: []const std.meta.Tuple(&.{ []const u8, Tag }),
+    assets_dir: *std.Build.Step,
 ) void {
     const exe = b.addExecutable(.{ .name = example.name, .root_module = b.createModule(.{
         .root_source_file = b.path(example.path),
@@ -135,6 +143,10 @@ pub fn addExample(
         .optimize = optimize,
         .imports = imports,
     }) });
+
+    exe.step.dependOn(assets_dir);
+
+    b.installArtifact(exe);
 
     if (link_lib_c) exe.linkLibC();
     for (system_libraries) |library| {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const common = @import("common.zig");
 const TargetTag = @import("builtin").target.os.tag;
 
 const core = @import("storytree-core");
@@ -31,10 +32,12 @@ const State = struct {
                 // when calling `window.setThumbBar([]ThumbBar.Button)`
                 switch (thumb) {
                     // Prev
-                    0 => { std.debug.print("Previous\n", .{}); },
+                    0 => {
+                        std.debug.print("Previous\n", .{});
+                    },
                     // Play/Pause
-                    1 => { 
-                        std.debug.print("Play/Pause\n", .{}); 
+                    1 => {
+                        std.debug.print("Play/Pause\n", .{});
                         self.playing = !self.playing;
                         if (self.playing) {
                             std.debug.print("Set Icon To Pause\n", .{});
@@ -47,8 +50,10 @@ const State = struct {
                         }
                     },
                     // Next
-                    2 => { std.debug.print("Next\n", .{}); },
-                    else =>{}
+                    2 => {
+                        std.debug.print("Next\n", .{});
+                    },
+                    else => {},
                 }
             },
             .key_input => |key_event| {
@@ -172,6 +177,8 @@ pub fn main() !void {
     const event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
 
+    try event_loop.setAppId("com.storytree.core");
+
     // Custom debug output of window
     std.debug.print(
         \\Controls:
@@ -184,35 +191,36 @@ pub fn main() !void {
         \\
     , .{});
 
-    const prev_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/skip-previous.ico");
-    const play_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/play.ico");
-    const pause_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/pause.ico");
-    const next_icon = try std.fs.cwd().realpathAlloc(allocator, "examples/assets/skip-next.ico");
+    // const prev_icon = try common.relativeFile(allocator, "assets/skip-previous.ico");
+    // const play_icon = try common.relativeFile(allocator, "assets/play.ico");
+    // const pause_icon = try common.relativeFile(allocator, "assets/pause.ico");
+    // const next_icon = try common.relativeFile(allocator, "assets/skip-next.ico");
+    //
+    // defer allocator.free(prev_icon);
+    // defer allocator.free(play_icon);
+    // defer allocator.free(pause_icon);
+    // defer allocator.free(next_icon);
 
-    defer allocator.free(prev_icon);
-    defer allocator.free(play_icon);
-    defer allocator.free(pause_icon);
-    defer allocator.free(next_icon);
+    const prev_icon = "assets/skip-previous.ico";
+    const play_icon = "assets/play.ico";
+    const pause_icon = "assets/pause.ico";
+    const next_icon = "assets/skip-next.ico";
 
-    var state: State = .{
-        .icons = &.{
-            prev_icon,
-            play_icon,
-            pause_icon,
-            next_icon,
-        },
-        .allocator = allocator
-    };
+    var state: State = .{ .icons = &.{
+        prev_icon,
+        play_icon,
+        pause_icon,
+        next_icon,
+    }, .allocator = allocator };
 
     const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.icon)});
+    defer allocator.free(title);
     const win = try event_loop.createWindow(.{
         .title = title,
         .width = 800,
         .height = 600,
-        .icon = .{ .custom = "examples\\assets\\icon.ico" },
+        .icon = .{ .custom = "assets\\icon.ico" },
     });
-    allocator.free(title);
-
 
     if (TargetTag == .windows) {
         try win.setThumbBar(&.{ .{
@@ -228,6 +236,20 @@ pub fn main() !void {
             .tooltip = "Next",
             .dismiss_on_click = true,
         } });
+
+        try win.setJumpList(.{
+            .recent = true,
+            .frequent = true,
+            .tasks = &.{.{ .label = "Play", .args = "--play", .icon = "assets/play.ico" }},
+            .categories = &.{
+                .{
+                    .label = "Custom",
+                    .items = &.{
+                        .{ .link = .{ .label = "Play", .args = "--play", .icon = "assets/play.ico" } },
+                    },
+                },
+            },
+        });
     }
 
     while (event_loop.isActive()) {

@@ -381,6 +381,10 @@ pub fn deinit(self: *@This()) void {
     parent.destroy(self);
 }
 
+pub fn setJumpList(self: *@This(), list: TaskBar.JumpList) !void {
+    try self.taskbar.setJumpList(self.arena.allocator(), list);
+}
+
 pub fn setThumbBar(self: *@This(), buttons: []const TaskBar.Button) !void {
     try self.taskbar.addButtons(self.arena.allocator(), buttons);
 }

@@ -112,8 +112,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
   - [ ] System Tray
-  - [ ] Custom Context Menu
-  - [ ] Title Bar
+  - [-] Title Bar
   - [x] Set App ID
   - [ ] Menu
   - [ ] Platform Specific
@@ -155,7 +154,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
   - [ ] System Tray
-  - [ ] Custom Context Menu
   - [ ] Title Bar
   - [ ] Set App ID
   - [ ] Menu
@@ -177,3 +175,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
 - Gamepad Specification:
   - W3C Gamepad API: https://www.w3.org/TR/gamepad/
   - There is no standard for game engines but mimicking the one for web browsers makes sense
+
+- System Tray
+    Linux: use `libappindicator` and maybe [`ext_tray_v1`](https://wayland.app/protocols/wayland-protocols/355) when it becomse stable

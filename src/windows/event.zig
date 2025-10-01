@@ -103,7 +103,7 @@ pub fn deinit(self: *@This()) void {
     parent.destroy(self);
 }
 
-pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
+pub fn setAppId(self: *@This(), app_id: []const u8) !void {
     const allocator = self.arena.allocator();
 
     const wid: [:0]const u16 = try std.unicode.utf8ToUtf16LeAllocZ(allocator, app_id);

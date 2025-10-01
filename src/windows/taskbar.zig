@@ -6,6 +6,8 @@ const HRESULT = win32.foundation.HRESULT;
 const RECT = win32.foundation.RECT;
 const BOOL = win32.foundation.BOOL;
 const HWND = win32.foundation.HWND;
+const TRUE = win32.zig.TRUE;
+const FALSE = win32.zig.FALSE;
 const HICON = win32.ui.windows_and_messaging.HICON;
 const CoInitializeEx = win32.system.com.CoInitializeEx;
 const CoCreateInstance = win32.system.com.CoCreateInstance;
@@ -14,11 +16,29 @@ const COINIT_APARTMENTTHREADED = win32.system.com.COINIT_APARTMENTTHREADED;
 const CLSCTX_INPROC_SERVER = win32.system.com.CLSCTX_INPROC_SERVER;
 const LR_SHARED = win32.ui.windows_and_messaging.LR_SHARED;
 
-const shobjidl = @cImport({
-    @cInclude("shobjidl.h");
-});
+const IUnknown = windows.IUnknown;
+const IID_ITaskbarList3 = win32.ui.shell.IID_ITaskbarList3;
+const CLSID_TaskbarList = win32.ui.shell.CLSID_TaskbarList;
+const controls = win32.ui.controls;
+const HIMAGELIST = controls.HIMAGELIST;
 
-const HIMAGELIST = shobjidl.HIMAGELIST;
+const ICustomDestinationList = win32.ui.shell.ICustomDestinationList;
+const IID_ICustomDestinationList = win32.ui.shell.IID_ICustomDestinationList;
+const CLSID_DestinationList = win32.ui.shell.CLSID_DestinationList;
+
+const IObjectCollection = win32.ui.shell.common.IObjectCollection;
+const IID_IObjectCollection = win32.ui.shell.common.IID_IObjectCollection;
+const CLSID_EnumerableObjectCollection = win32.ui.shell.CLSID_EnumerableObjectCollection;
+const IObjectArray = win32.ui.shell.common.IObjectArray;
+const IID_IObjectArray = win32.ui.shell.common.IID_IObjectArray;
+
+const IShellItem = win32.ui.shell.IShellItem;
+const IID_IShellItem = win32.ui.shell.IID_IShellItem;
+const SHCreateItemFromParsingName = win32.ui.shell.SHCreateItemFromParsingName;
+
+const IShellLinkW = win32.ui.shell.IShellLinkW;
+const IID_IShellLinkW = win32.ui.shell.IID_IShellLinkW;
+const CLSID_ShellLink = win32.ui.shell.CLSID_ShellLink;
 
 fn ok(hr: HRESULT) bool {
     return hr >= 0;
@@ -63,12 +83,9 @@ pub const TBPFLAG = enum(i32) {
     PAUSED = 8,
 };
 
-pub const CLSID_TaskbarList = windows.Guid.initString("56FDF344-FD6D-11D0-958A-006097C9A090");
-
 pub const ITaskbarList3 = extern struct {
     vtable: *VTable,
 
-    pub const IID: windows.Guid = windows.Guid.initString("EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF");
     pub const VTable = extern struct {
         QueryInterface: *const fn (*ITaskbarList3, *const windows.Guid, *?*anyopaque) callconv(.c) HRESULT,
         AddRef: *const fn (*ITaskbarList3) callconv(.c) u32,
@@ -94,7 +111,7 @@ pub const ITaskbarList3 = extern struct {
     };
 
     pub fn markFullscreenWindow(self: *@This(), hwnd: HWND, state: bool) HRESULT {
-        return self.vtable.MarkFullscreenWindow(self, hwnd, if (state) win32.zig.TRUE else win32.zig.FALSE);
+        return self.vtable.MarkFullscreenWindow(self, hwnd, if (state) TRUE else FALSE);
     }
 
     pub fn setProgressValue(self: *@This(), hwnd: HWND, completed: u64, total: u64) HRESULT {
@@ -130,10 +147,10 @@ const ImageList = struct {
     handle: HIMAGELIST,
     pub fn create(capacity: u32) !@This() {
         return .{
-            .handle = shobjidl.ImageList_Create(
+            .handle = controls.ImageList_Create(
                 16,
                 16,
-                shobjidl.ILC_COLOR32,
+                controls.ILC_COLOR32,
                 @intCast(capacity),
                 1,
             ) orelse return error.ImageListCreate,
@@ -141,37 +158,35 @@ const ImageList = struct {
     }
 
     pub fn destroy(self: *@This()) bool {
-        return 1 == shobjidl.ImageList_Destroy(self.handle);
+        return TRUE == controls.ImageList_Destroy(self.handle);
     }
 
-    pub fn count(self: *@This()) u32 {
-        return @intCast(shobjidl.ImageList_GetImageCount(self.handle));
+    pub fn count(self: *@This()) i32 {
+        return controls.ImageList_GetImageCount(self.handle);
     }
 
     pub fn resize(self: *@This(), size: u32) bool {
-        return 1 == shobjidl.ImageList_SetImageCount(self.handle, @intCast(size));
+        return TRUE == controls.ImageList_SetImageCount(self.handle, size);
     }
 
-    pub fn add(self: *@This(), bitmap: shobjidl.HBITMAP, mask: shobjidl.HBITMAP) i32 {
-        return @intCast(shobjidl.ImageList_Add(self.handle, bitmap, mask));
+    pub fn add(self: *@This(), bitmap: controls.HBITMAP, mask: controls.HBITMAP) i32 {
+        return controls.ImageList_Add(self.handle, bitmap, mask);
     }
 
-    pub fn replace(self: *@This(), index: i32, bitmap: shobjidl.HBITMAP, mask: shobjidl.HBITMAP) bool {
-        return 1 == shobjidl.ImageList_Replace(self.handle, @intCast(index), bitmap, mask);
+    pub fn replace(self: *@This(), index: i32, bitmap: controls.HBITMAP, mask: controls.HBITMAP) bool {
+        return TRUE == controls.ImageList_Replace(self.handle, index, bitmap, mask);
     }
 
-    extern "comctl32" fn ImageList_ReplaceIcon(list: HIMAGELIST, i: i32, hicon: HICON) i32;
-    pub fn replaceIcon(self: *@This(), i: i32, icon: HICON) i32 {
-        return @intCast(ImageList_ReplaceIcon(self.handle, @intCast(i), icon));
+    pub fn replaceIcon(self: *@This(), i: i32, icon: ?HICON) i32 {
+        return controls.ImageList_ReplaceIcon(self.handle, i, icon);
     }
 
-    pub fn remove(self: *@This(), index: u32) bool {
-        return 1 == shobjidl.ImageList_Remove(self.handle, @intCast(index));
+    pub fn remove(self: *@This(), index: i32) bool {
+        return TRUE == controls.ImageList_Remove(self.handle, index);
     }
 
-    // pub extern fn ImageList_SetBkColor(himl: HIMAGELIST, clrBk: COLORREF) COLORREF;
-    pub fn setBkColor(self: *@This(), clrBk: shobjidl.COLORREF) shobjidl.COLORREF {
-        return shobjidl.ImageList_SetBkColor(self.handle, clrBk);
+    pub fn setBkColor(self: *@This(), clrBk: u32) u32 {
+        return controls.ImageList_SetBkColor(self.handle, clrBk);
     }
 
     // pub extern fn ImageList_GetIcon(himl: HIMAGELIST, i: c_int, flags: UINT) HICON;
@@ -282,7 +297,7 @@ pub fn init(hwnd: HWND) !@This() {
     if (!ok(CoInitializeEx(null, COINIT_APARTMENTTHREADED))) return error.ComInitFailed;
 
     var unk: *anyopaque = undefined;
-    if (!ok(CoCreateInstance(&CLSID_TaskbarList, null, CLSCTX_INPROC_SERVER, &ITaskbarList3.IID, &unk)))
+    if (!ok(CoCreateInstance(CLSID_TaskbarList, null, CLSCTX_INPROC_SERVER, IID_ITaskbarList3, &unk)))
         return error.CoCreateInstanceFailed;
 
     const taskbar: *ITaskbarList3 = @ptrCast(@alignCast(unk));
@@ -339,7 +354,7 @@ pub fn updateTooltip(self: *@This(), index: usize, tooltip: ?[]const u8) !void {
         _ = try std.unicode.utf8ToUtf16Le(&button.szTip, t);
     }
 
-    if (!ok(self.taskbar.updateButtons(self.hwnd, &.{ button }))) return error.UpdateButtons;
+    if (!ok(self.taskbar.updateButtons(self.hwnd, &.{button}))) return error.UpdateButtons;
 }
 
 pub fn updateFlags(self: *@This(), index: usize, button: Button.Flags) !void {
@@ -360,8 +375,8 @@ pub fn updateFlags(self: *@This(), index: usize, button: Button.Flags) !void {
                     .DISMISSONCLICK = if (buttons[index].dismiss_on_click) 1 else 0,
                     .HIDDEN = if (buttons[index].hidden) 1 else 0,
                 },
-                },
-            }))) return error.UpdateButtons;
+            },
+        }))) return error.UpdateButtons;
     }
 }
 
@@ -372,7 +387,7 @@ pub fn addButtons(self: *@This(), allocator: std.mem.Allocator, buttons: []const
     self.buttons = try allocator.alloc(Button.FlagState, buttons.len);
 
     self.image_list = try ImageList.create(@intCast(buttons.len));
-    _ = self.image_list.?.setBkColor(shobjidl.CLR_NONE);
+    _ = self.image_list.?.setBkColor(@bitCast(controls.CLR_NONE));
 
     const thumb_buttons: []THUMBBUTTON = try allocator.alloc(THUMBBUTTON, buttons.len);
     defer allocator.free(thumb_buttons);
@@ -415,3 +430,257 @@ pub fn addButtons(self: *@This(), allocator: std.mem.Allocator, buttons: []const
     _ = self.taskbar.setImages(self.hwnd, self.image_list.?.handle);
     _ = self.taskbar.addButtons(self.hwnd, thumb_buttons);
 }
+
+pub const JumpList = struct {
+    tasks: ?[]const Link = null,
+    categories: ?[]const Category = null,
+    recent: bool = false,
+    frequent: bool = false,
+
+    pub const Link = struct {
+        label: []const u8,
+        args: []const u8,
+        icon: ?[]const u8 = null,
+    };
+
+    pub const Category = struct {
+        label: []const u8,
+        items: []const Item,
+
+        pub const Item = union(enum) {
+            link: Link,
+            file: []const u8,
+        };
+    };
+};
+
+/// Use IApplicationAssociationRegistrationUI::LaunchAdvancedAssociationUI to prompt user to
+/// select the current app for a file association
+///
+/// To specify that the app is associated with a file type register handler for "appid"
+/// HKCU\Software\Classes\.story\
+///     (Default)          (REG_SZ) "Storytree.story"
+///     OpenWithProgids\
+///         Storytree.story (REG_NONE or REG_SZ) ""   ; empty data
+/// 
+/// HKCU\Software\Classes\Storytree.story\
+///     (Default)          (REG_SZ) "Storytree Document"
+///     FriendlyTypeName   (REG_SZ) "Storytree Document"
+///     DefaultIcon        (REG_SZ) "<full\path\to\dev.exe>,0"
+///     shell\open\command (REG_SZ) "\"<full\path\to\dev.exe>\" \"%1\""
+///
+/// Or With
+///
+/// HKCU\Software\Classes\Applications\<YourExeName>.exe\
+///     FriendlyAppName    (REG_SZ) "Storytree"
+///     DefaultIcon        (REG_SZ) "<full\path\to\dev.exe>,0"
+///     shell\open\command (REG_SZ) "\"<full\path\to\dev.exe>\" \"%1\""
+///     SupportedTypes\
+///         .story         (REG_SZ) ""      ; value name = extension, empty data
+///         .tree          (REG_SZ) ""
+pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList) !void {
+    _ = self;
+
+    if (!ok(CoInitializeEx(null, COINIT_APARTMENTTHREADED))) return error.ComInit;
+    defer CoUninitialize();
+
+    var cdl_unk: *anyopaque = undefined;
+    if (!ok(CoCreateInstance(
+        CLSID_DestinationList,
+        null,
+        CLSCTX_INPROC_SERVER,
+        IID_ICustomDestinationList,
+        &cdl_unk,
+    )))
+        return error.CoCreateDestList;
+
+    const cdl: *ICustomDestinationList = @ptrCast(@alignCast(cdl_unk));
+    defer _ = IUnknown.Release(@ptrCast(cdl));
+    errdefer _ = cdl.AbortList();
+
+    var max_slots: u32 = 0;
+    var removed_unk: *anyopaque = undefined;
+    if (!ok(cdl.BeginList(&max_slots, IID_IObjectArray, &removed_unk))) {
+        return error.BeginList;
+    }
+
+    // TODO respect removed items <here>
+
+    // ----- TASKS -----
+    task_blk: {
+        if (list.tasks) |tasks| {
+            if (tasks.len == 0) break :task_blk;
+
+            var tasks_unk: *anyopaque = undefined;
+            if (!ok(CoCreateInstance(
+                CLSID_EnumerableObjectCollection,
+                null,
+                CLSCTX_INPROC_SERVER,
+                IID_IObjectCollection,
+                &tasks_unk,
+            ))) {
+                return error.CoCreateCollection;
+            }
+
+            const task_collection: *IObjectCollection = @ptrCast(@alignCast(tasks_unk));
+            defer _ = IUnknown.Release(@ptrCast(task_collection));
+
+            const exe_path = try std.fs.selfExePathAlloc(allocator);
+            defer allocator.free(exe_path);
+
+            var path_buffer: [260]u8 = undefined;
+            var exe_dir = try std.fs.cwd().openDir(try std.fs.selfExeDirPath(&path_buffer), .{});
+            defer exe_dir.close();
+
+            const wide_exe_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, exe_path);
+            defer allocator.free(wide_exe_path);
+
+            for (tasks) |task| {
+                const label = try std.unicode.utf8ToUtf16LeAllocZ(allocator, task.label);
+                defer allocator.free(label);
+
+                const args = try std.unicode.utf8ToUtf16LeAllocZ(allocator, task.args);
+                defer allocator.free(args);
+
+                var icon: ?[:0]const u16 = null;
+                defer if (icon) |i| allocator.free(i);
+
+                if (task.icon) |i| {
+                    const path = try exe_dir.realpathAlloc(allocator, i);
+                    defer allocator.free(path);
+                    icon = try std.unicode.utf8ToUtf16LeAllocZ(allocator, path);
+                }
+
+                const link = try makeLink(label, wide_exe_path, args, icon orelse wide_exe_path, 0);
+                defer _ = IUnknown.Release(@ptrCast(link));
+
+                _ = task_collection.AddObject(@ptrCast(link));
+            }
+
+            const hr = cdl.AddUserTasks(@ptrCast(task_collection));
+            if (!ok(hr)) return error.AddTasks;
+        }
+    }
+
+    if (list.categories) |categories| {
+        for (categories) |category| {
+            if (category.items.len == 0) continue;
+
+            var tasks_unk: *anyopaque = undefined;
+            if (!ok(CoCreateInstance(
+                CLSID_EnumerableObjectCollection,
+                null,
+                CLSCTX_INPROC_SERVER,
+                IID_IObjectCollection,
+                &tasks_unk,
+            ))) {
+                return error.CoCreateCollection;
+            }
+
+            const task_collection: *IObjectCollection = @ptrCast(@alignCast(tasks_unk));
+            defer _ = IUnknown.Release(@ptrCast(task_collection));
+
+            const exe_path = try std.fs.selfExePathAlloc(allocator);
+            defer allocator.free(exe_path);
+
+            var path_buffer: [260]u8 = undefined;
+            var exe_dir = try std.fs.cwd().openDir(try std.fs.selfExeDirPath(&path_buffer), .{});
+            defer exe_dir.close();
+
+            const wide_exe_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, exe_path);
+            defer allocator.free(wide_exe_path);
+
+            for (category.items) |item| {
+                switch (item) {
+                    .link => |task| {
+                        const label = try std.unicode.utf8ToUtf16LeAllocZ(allocator, task.label);
+                        defer allocator.free(label);
+
+                        const args = try std.unicode.utf8ToUtf16LeAllocZ(allocator, task.args);
+                        defer allocator.free(args);
+
+                        var icon: ?[:0]const u16 = null;
+                        defer if (icon) |i| allocator.free(i);
+
+                        if (task.icon) |i| {
+                            const path = try exe_dir.realpathAlloc(allocator, i);
+                            defer allocator.free(path);
+                            icon = try std.unicode.utf8ToUtf16LeAllocZ(allocator, path);
+                        }
+
+                        const link = try makeLink(label, wide_exe_path, args, icon orelse wide_exe_path, 0);
+                        defer _ = IUnknown.Release(@ptrCast(link));
+
+                        _ = task_collection.AddObject(@ptrCast(link));
+                    },
+                    .file => |path| {
+                        const wide_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, path);
+                        defer allocator.free(wide_path);
+
+                        var shell_item: *IShellItem = undefined;
+                        if (ok(SHCreateItemFromParsingName(wide_path.ptr, null, IID_IShellItem, @ptrCast(&shell_item)))) {
+                            _ = task_collection.AddObject(@ptrCast(shell_item));
+                            _ = IUnknown.Release(@ptrCast(shell_item));
+                        }
+                    }
+                }
+            }
+
+            const name = try std.unicode.utf8ToUtf16LeAllocZ(allocator, category.label);
+            defer allocator.free(name);
+
+            const hr = cdl.AppendCategory(name.ptr, @ptrCast(task_collection));
+            if (!ok(hr)) {
+                std.debug.print("0x{X}\n",.{@as(u32, @bitCast(hr))});
+                return error.AppendCategory;
+            }
+        }
+    }
+
+    if (list.recent) _ = cdl.AppendKnownCategory(.RECENT);
+    if (list.frequent) _ = cdl.AppendKnownCategory(.FREQUENT);
+
+    _ = cdl.CommitList();
+}
+
+fn iconPath(allocator: std.mem.Allocator, base: *std.fs.Dir, subpath: []const u8) ![:0]const u16 {
+    const icon_path = try base.realpathAlloc(allocator, subpath);
+    defer allocator.free(icon_path);
+    const wide_icon_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, icon_path);
+    return wide_icon_path;
+}
+
+// Helper: create an IShellLinkW with a visible title (Tasks/custom items use this)
+fn makeLink(title: [*:0]const u16, exe_path: [*:0]const u16, args: [*:0]const u16, icon_path: [*:0]const u16, icon_index: c_int) !*IShellLinkW {
+    var unk: *anyopaque = undefined;
+    if (!ok(CoCreateInstance(CLSID_ShellLink, null, CLSCTX_INPROC_SERVER, IID_IShellLinkW, &unk)))
+        return error.CoCreateShellLink;
+
+    const link: *IShellLinkW = @ptrCast(@alignCast(unk));
+
+    _ = link.SetPath(exe_path);
+    _ = link.SetArguments(args);
+    _ = link.SetIconLocation(icon_path, icon_index);
+    // (optional) SetWorkingDirectory, SetDescription, etc…
+
+    // Set the display text via IPropertyStore/PKEY_Title
+    var ps: ?*IPropertyStore = null;
+    if (ok(IUnknown.QueryInterface(@ptrCast(link), IID_IPropertyStore, @ptrCast(&ps)))) {
+        var pv: PROPVARIANT = undefined;
+        _ = InitPropVariantFromString(title, &pv);
+        _ = ps.?.SetValue(&PKEY_Title, &pv);
+        _ = ps.?.Commit();
+        _ = PropVariantClear(&pv);
+        _ = IUnknown.Release(@ptrCast(ps.?));
+    }
+    return link;
+}
+
+const L = std.unicode.utf8ToUtf16LeStringLiteral;
+
+const IID_IPropertyStore = win32.ui.shell.properties_system.IID_IPropertyStore;
+const IPropertyStore = win32.ui.shell.properties_system.IPropertyStore;
+const PROPVARIANT = win32.system.com.structured_storage.PROPVARIANT;
+const InitPropVariantFromString = win32.ui.shell.properties_system.InitPropVariantFromStringAsVector;
+const PropVariantClear = win32.system.com.structured_storage.PropVariantClear;
+const PKEY_Title = win32.storage.enhanced_storage.PKEY_Title;

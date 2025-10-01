@@ -17,7 +17,7 @@ height: u32 = 0,
 resizeWidth: u32 = 0,
 resizeHeight: u32 = 0,
 
-pub fn create(window: *core.Window) !Renderer {
+pub fn create(window: *core.window.Window) !Renderer {
     var self: Renderer = undefined;
 
     const instance = wgpu.Instance.create(null) orelse return error.CouldNotCreateInstance;
