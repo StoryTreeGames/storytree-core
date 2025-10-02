@@ -66,7 +66,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [x] System Tray
   - [x] Menu
   - [x] Set App ID
-  - [ ] Start Menu shortcut for things like associating notifications
   - [-] Platform Specific
     - [x] Taskbar
         - [x] Progress
@@ -157,6 +156,14 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [ ] Title Bar
   - [ ] Set App ID
   - [ ] Menu
+
+## Notes
+
+- Windows
+    - Start Menu shortcut is needed for things like associating notifications with the application
+    - Add a `<filename>.rc` file to the build.zig with `exe.addWin32ResourceFile` function
+        - This can be used to set an exe icon along with other exe specific configurations
+    - See setJumpList in `src/windows/taskbar.zig` where it describes how to set up file association with the app to allow `IShellItem` items in the jump list
 
 ## References
 

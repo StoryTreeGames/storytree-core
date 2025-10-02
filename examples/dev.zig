@@ -58,6 +58,21 @@ const State = struct {
             },
             .key_input => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
+                if (key_event.matches(' ', .{}) and TargetTag == .windows) {
+                    try window.setJumpList(.{
+                        .recent = true,
+                        .frequent = true,
+                        .tasks = &.{.{ .label = "Play", .args = "--play" }},
+                        .categories = &.{
+                            .{
+                                .label = "Custom",
+                                .items = &.{
+                                    .{ .link = .{ .label = "Play", .args = "--play", .icon = "assets/play.ico" } },
+                                },
+                            },
+                        },
+                    });
+                }
                 if (key_event.matches(.f11, .{})) {
                     if (self.fullscreen) window.restore() else try window.fullscreen();
                     self.fullscreen = !self.fullscreen;
@@ -240,7 +255,7 @@ pub fn main() !void {
         try win.setJumpList(.{
             .recent = true,
             .frequent = true,
-            .tasks = &.{.{ .label = "Play", .args = "--play", .icon = "assets/play.ico" }},
+            .tasks = &.{.{ .label = "Play", .args = "--play" }},
             .categories = &.{
                 .{
                     .label = "Custom",

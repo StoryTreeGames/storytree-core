@@ -144,6 +144,8 @@ pub fn addExample(
         .imports = imports,
     }) });
 
+    exe.addWin32ResourceFile(.{ .file = b.path("app.rc") });
+
     exe.step.dependOn(assets_dir);
 
     b.installArtifact(exe);

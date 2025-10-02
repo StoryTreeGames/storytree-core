@@ -10,6 +10,7 @@ const TRUE = win32.zig.TRUE;
 const FALSE = win32.zig.FALSE;
 const HICON = win32.ui.windows_and_messaging.HICON;
 const CoInitializeEx = win32.system.com.CoInitializeEx;
+const CoTaskMemFree = win32.system.com.CoTaskMemFree;
 const CoCreateInstance = win32.system.com.CoCreateInstance;
 const CoUninitialize = win32.system.com.CoUninitialize;
 const COINIT_APARTMENTTHREADED = win32.system.com.COINIT_APARTMENTTHREADED;
@@ -34,6 +35,7 @@ const IID_IObjectArray = win32.ui.shell.common.IID_IObjectArray;
 
 const IShellItem = win32.ui.shell.IShellItem;
 const IID_IShellItem = win32.ui.shell.IID_IShellItem;
+const SIGDN_DESKTOPABSOLUTEPARSING = win32.ui.shell.SIGDN_DESKTOPABSOLUTEPARSING;
 const SHCreateItemFromParsingName = win32.ui.shell.SHCreateItemFromParsingName;
 
 const IShellLinkW = win32.ui.shell.IShellLinkW;
@@ -478,6 +480,8 @@ pub const JumpList = struct {
 ///     SupportedTypes\
 ///         .story         (REG_SZ) ""      ; value name = extension, empty data
 ///         .tree          (REG_SZ) ""
+///
+/// TODO: Report on the category items that were removed
 pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList) !void {
     _ = self;
 
@@ -502,6 +506,57 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
     var removed_unk: *anyopaque = undefined;
     if (!ok(cdl.BeginList(&max_slots, IID_IObjectArray, &removed_unk))) {
         return error.BeginList;
+    }
+
+    const removed: *IObjectArray = @ptrCast(@alignCast(removed_unk));
+    defer _ = IUnknown.Release(@ptrCast(removed));
+
+    var total_removed: u32 = 0;
+    _ = removed.GetCount(&total_removed);
+
+    var removed_lookup: std.AutoArrayHashMapUnmanaged(u64, void) = .empty;
+    defer removed_lookup.deinit(allocator);
+
+    for (0..total_removed) |i| {
+        var r: *IUnknown = undefined;
+        if (!ok(removed.GetAt(@intCast(i), &IUnknown.IID, @ptrCast(&r)))) continue;
+
+        var item_unk: ?*anyopaque = undefined;
+        if (ok(r.QueryInterface(IID_IShellLinkW, &item_unk)) and item_unk != null) {
+            const item: *IShellLinkW = @ptrCast(@alignCast(item_unk.?));
+
+            var hasher = std.hash.Wyhash.init(0);
+
+            {
+                var path: [260:0]u16 = std.mem.zeroes([260:0]u16);
+                _ = item.GetPath(&path, @intCast(path.len), null, 0);
+                const path_utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, &path);
+                defer allocator.free(path_utf8);
+                hasher.update(std.mem.sliceTo(path_utf8, 0));
+            }
+
+            {
+                var args: [512:0]u16 = std.mem.zeroes([512:0]u16);
+                _ = item.GetArguments(&args, @intCast(args.len));
+
+                const args_utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, &args);
+                defer allocator.free(args_utf8);
+                hasher.update(std.mem.sliceTo(args_utf8, 0));
+            }
+
+            try removed_lookup.put(allocator, hasher.final(), {});
+        } else if (ok(r.QueryInterface(IID_IShellItem, &item_unk)) and item_unk != null) {
+            const item: *IShellItem = @ptrCast(@alignCast(item_unk.?));
+
+            var name: ?[*:0]u16 = null;
+            defer CoTaskMemFree(@ptrCast(name));
+            _ = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &name);
+
+            var buffer: [260]u8 = undefined;
+            const size = try std.unicode.utf16LeToUtf8(&buffer, std.mem.sliceTo(name.?, 0));
+
+            try removed_lookup.put(allocator, std.hash.Wyhash.hash(0, buffer[0..size]), {});
+        }
     }
 
     // TODO respect removed items <here>
@@ -566,6 +621,8 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
         for (categories) |category| {
             if (category.items.len == 0) continue;
 
+            var total: usize = 0;
+
             var tasks_unk: *anyopaque = undefined;
             if (!ok(CoCreateInstance(
                 CLSID_EnumerableObjectCollection,
@@ -593,6 +650,12 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
             for (category.items) |item| {
                 switch (item) {
                     .link => |task| {
+                        var hasher = std.hash.Wyhash.init(0);
+                        hasher.update(exe_path);
+                        hasher.update(task.args);
+                        const hash = hasher.final();
+                        if (removed_lookup.contains(hash)) continue;
+
                         const label = try std.unicode.utf8ToUtf16LeAllocZ(allocator, task.label);
                         defer allocator.free(label);
 
@@ -611,14 +674,18 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
                         const link = try makeLink(label, wide_exe_path, args, icon orelse wide_exe_path, 0);
                         defer _ = IUnknown.Release(@ptrCast(link));
 
+                        total += 1;
                         _ = task_collection.AddObject(@ptrCast(link));
                     },
                     .file => |path| {
+                        if (removed_lookup.contains(std.hash.Wyhash.hash(0, path))) continue;
+
                         const wide_path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, path);
                         defer allocator.free(wide_path);
 
                         var shell_item: *IShellItem = undefined;
                         if (ok(SHCreateItemFromParsingName(wide_path.ptr, null, IID_IShellItem, @ptrCast(&shell_item)))) {
+                            total += 1;
                             _ = task_collection.AddObject(@ptrCast(shell_item));
                             _ = IUnknown.Release(@ptrCast(shell_item));
                         }
@@ -626,13 +693,14 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
                 }
             }
 
-            const name = try std.unicode.utf8ToUtf16LeAllocZ(allocator, category.label);
-            defer allocator.free(name);
+            if (total > 0) {
+                const name = try std.unicode.utf8ToUtf16LeAllocZ(allocator, category.label);
+                defer allocator.free(name);
 
-            const hr = cdl.AppendCategory(name.ptr, @ptrCast(task_collection));
-            if (!ok(hr)) {
-                std.debug.print("0x{X}\n",.{@as(u32, @bitCast(hr))});
-                return error.AppendCategory;
+                const hr = cdl.AppendCategory(name.ptr, @ptrCast(task_collection));
+                if (!ok(hr)) {
+                    return error.AppendCategory;
+                }
             }
         }
     }
