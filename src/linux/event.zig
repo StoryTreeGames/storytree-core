@@ -86,7 +86,32 @@ pub fn isActive(self: *const @This()) bool {
 }
 
 pub fn wait(self: *@This()) !void {
-    if (self.display.dispatch() != .SUCCESS) return error.DisplayDispatch;
+    while (!self.display.prepareRead()) {
+        if (self.display.dispatchPending() != .SUCCESS) return error.DisplayDispatchPending;
+    }
+
+    var watch: i16 = std.posix.POLL.IN;
+    if (self.display.flush() != .SUCCESS) {
+        watch |= std.posix.POLL.OUT;
+    }
+
+    // NOTE: make into ArrayList where [0] is display fd and [1] is uevent hotplug for adding and removing devices.
+    //  All other indexes are the connected devices
+    var pollfd = [_]std.posix.pollfd{.{ .fd = self.display.getFd(), .events = watch, .revents = 0 }};
+
+    const n = try std.posix.poll(&pollfd, -1);
+    if (n <= 0) {
+        self.display.cancelRead();
+        return;
+    }
+
+    if ((pollfd[0].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR)) != 0) {
+        if (self.display.readEvents() != .SUCCESS) return error.DisplayReadEvents;
+        if (self.display.flush() != .SUCCESS) return error.DisplayFlush;
+        if (self.display.dispatchPending() != .SUCCESS) return error.DisplayDispatchPending;
+    } else {
+        self.display.cancelRead();
+    }
 }
 
 pub fn poll(self: *@This()) !void {
@@ -99,13 +124,21 @@ pub fn poll(self: *@This()) !void {
         watch |= std.posix.POLL.OUT;
     }
 
+    // NOTE: make into ArrayList where [0] is display fd and [1] is uevent hotplug for adding and removing devices.
+    //  All other indexes are the connected devices
     var pollfd = [_]std.posix.pollfd{.{ .fd = self.display.getFd(), .events = watch, .revents = 0 }};
-    if (try std.posix.poll(&pollfd, 0) > 0) {
-        if ((pollfd[0].revents & std.posix.POLL.IN) != 0) {
-            if (self.display.readEvents() != .SUCCESS) return error.DisplayReadEvents;
-            if (self.display.flush() != .SUCCESS) return error.DisplayFlush;
-            if (self.display.dispatchPending() != .SUCCESS) return error.DisplayDispatchPending;
-        }
+
+    // NOTE: use -1 to block until event
+    const n = try std.posix.poll(&pollfd, 0);
+    if (n <= 0) {
+        self.display.cancelRead();
+        return;
+    }
+
+    if ((pollfd[0].revents & (std.posix.POLL.IN | std.posix.POLL.HUP | std.posix.POLL.ERR)) != 0) {
+        if (self.display.readEvents() != .SUCCESS) return error.DisplayReadEvents;
+        if (self.display.flush() != .SUCCESS) return error.DisplayFlush;
+        if (self.display.dispatchPending() != .SUCCESS) return error.DisplayDispatchPending;
     } else {
         self.display.cancelRead();
     }
