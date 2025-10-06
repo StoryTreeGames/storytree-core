@@ -13,7 +13,6 @@ const examples = [_]Example{
     .{ .name = "notification", .path = EXAMPLES ++ "/notification.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
-    // .{ .name = "linux", .path = EXAMPLES ++ "/linux.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
 };
 
@@ -27,7 +26,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    var deps: @import("std").ArrayList(std.Build.Module.Import) = .empty;
+    var deps: std.ArrayList(std.Build.Module.Import) = .empty;
     defer deps.deinit(b.allocator);
 
     const uuid = b.dependency("uuid", .{});

@@ -59,6 +59,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Repaint
     - [x] Theme Change
     - [x] Drag Drop
+    - [ ] Gamepad
   - [-] Query
     - [x] Keys
     - [x] Mouse
@@ -106,13 +107,14 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Repaint
     - [ ] Theme Change
     - [ ] Drag Drop
+    - [ ] Gamepad
   - [ ] Query
     - [ ] Keys
     - [ ] Mouse
-    - [ ] Gamepad, controller, joystick, etc.
+    - [ ] Gamepad
   - [ ] System Tray
   - [-] Title Bar
-  - [x] Set App ID
+  - [ ] Set App ID
   - [ ] Menu
   - [ ] Platform Specific
 
