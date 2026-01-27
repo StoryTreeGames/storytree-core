@@ -14,6 +14,7 @@ const examples = [_]Example{
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
+    .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
 };
 
 pub fn build(b: *std.Build) !void {

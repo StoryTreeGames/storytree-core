@@ -106,7 +106,9 @@ pub fn main() !void {
     });
 
     while (event_loop.isActive()) {
+        // Collect all events currently in OS event buffer
         try event_loop.wait();
+        // Remove the first event from the collected event buffer
         while (event_loop.pop()) |e| {
             if (e == .window) {
                 try handleEvent(event_loop, e.window.target, e.window.event);

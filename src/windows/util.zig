@@ -50,21 +50,19 @@ pub const S_FALSE: HRESULT = 1;
 pub const SIGDN_FILESYSPATH: i32 = -2147123200;
 pub const SFGAO_FILESYSTEM: i32 = 0x40000000;
 
-pub const WM_TRAYICON = win32.ui.windows_and_messaging.WM_USER + 1;
-
 pub const CLSID_FileOpenDialog: Guid = .{ .Ints = .{
     .a = 0xdc1c5a9c,
     .b = 0xe88a,
-    .c = 0x4dde, 
-    .d = .{ 0xa5, 0xa1, 0x60, 0xf8, 0x2a, 0x20, 0xae, 0xf7 }
-}};
+    .c = 0x4dde,
+    .d = .{ 0xa5, 0xa1, 0x60, 0xf8, 0x2a, 0x20, 0xae, 0xf7 },
+} };
 
 pub const CLSID_FileSaveDialog: Guid = .{ .Ints = .{
     .a = 0xc0b4e2f3,
     .b = 0xba21,
     .c = 0x4773,
     .d = .{ 0x8d, 0xba, 0x33, 0x5e, 0xc9, 0x46, 0xeb, 0x8b },
-}};
+} };
 
 pub extern "shell32" fn SHCreateItemFromParsingName(pszPath: [*:0]const u16, pbc: ?*anyopaque, riid: *const Guid, ppv: **anyopaque) HRESULT;
 pub extern "shell32" fn SetCurrentProcessExplicitAppUserModelID([*:0]const u16) HRESULT;

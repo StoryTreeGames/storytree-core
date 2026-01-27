@@ -13,8 +13,9 @@ const Event = @import("../event.zig").Event;
 
 arena: std.heap.ArenaAllocator,
 
-queue: EventQueue,
+is_exit: bool,
 windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
+queue: EventQueue,
 
 display: *wl.Display,
 registry: *wl.Registry,
@@ -81,8 +82,12 @@ pub fn closeWindow(self: *@This(), id: usize) void {
     }
 }
 
+pub fn exit(self: *@This()) void {
+    self.is_exit = true;
+}
+
 pub fn isActive(self: *const @This()) bool {
-    return self.windows.count() > 0;
+    return !self.is_exit and self.windows.count() > 0;
 }
 
 pub fn wait(self: *@This()) !void {

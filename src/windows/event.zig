@@ -10,7 +10,24 @@ const windows_and_messaging = win32.ui.windows_and_messaging;
 const graphics = win32.graphics;
 const foundation = win32.foundation;
 const keyboard_and_mouse = win32.ui.input.keyboard_and_mouse;
+
+const HRAWINPUT = win32.ui.input.HRAWINPUT;
+const RAWINPUT = win32.ui.input.RAWINPUT;
+const GetRawInputData = win32.ui.input.GetRawInputData;
+const RAW_INPUT_DATA_COMMAND_FLAGS = win32.ui.input.RAW_INPUT_DATA_COMMAND_FLAGS;
+const RAWINPUTHEADER = win32.ui.input.RAWINPUTHEADER;
+const RIM_TYPEMOUSE = win32.ui.input.RIM_TYPEMOUSE;
+
 const zig = win32.zig;
+
+const RegisterRawInputDevices = win32.ui.input.RegisterRawInputDevices;
+const RAWINPUTDEVICE = win32.ui.input.RAWINPUTDEVICE;
+const RAWINPUTDEVICE_FLAGS = win32.ui.input.RAWINPUTDEVICE_FLAGS;
+const RIDEV_INPUTSINK = win32.ui.input.RIDEV_INPUTSINK;
+const RIDEV_REMOVE = win32.ui.input.RIDEV_REMOVE;
+const HID_USAGE_GENERIC_MOUSE = win32.devices.human_interface_device.HID_USAGE_GENERIC_MOUSE;
+const HID_USAGE_PAGE_GENERIC = win32.devices.human_interface_device.HID_USAGE_PAGE_GENERIC;
+const MOUSE_MOVE_ABSOLUTE = win32.devices.human_interface_device.MOUSE_MOVE_ABSOLUTE;
 
 const MenuInfo = @import("../menu.zig").Info;
 const event = @import("../event.zig");
@@ -19,6 +36,7 @@ const util = @import("./util.zig");
 
 const Window = @import("window.zig");
 const WindowOptions = @import("../window.zig").Options;
+const Visibility = @import("../window.zig").Visibility;
 const Modifiers = event.Modifiers;
 const EventQueue = event.EventQueue;
 const Event = event.Event;
@@ -53,9 +71,11 @@ const PRESSED: u8 = 0b10000000;
 
 arena: std.heap.ArenaAllocator,
 
+is_exit: bool,
 windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
 queue: EventQueue,
 
+raw_input: bool = false,
 ui_settings: *UISettings,
 theme_change_handler: struct {
     instance: *TypedEventHandler(UISettings, IInspectable),
@@ -127,8 +147,12 @@ pub fn closeWindow(self: *@This(), id: usize) void {
     }
 }
 
+pub fn exit(self: *@This()) void {
+    self.is_exit = true;
+}
+
 pub fn isActive(self: *const @This()) bool {
-    return self.windows.count() > 0;
+    return !self.is_exit and self.windows.count() > 0;
 }
 
 /// Attempt to get the next `WindowEvent` in the queue.
@@ -155,10 +179,7 @@ pub fn pop(self: *@This()) ?Event {
 pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, isize })) bool {
     const winId = @intFromPtr(args[0]);
     if (self.windows.get(winId)) |win| {
-        if (parseEvent(self, win, args)) |evt| {
-            self.queue.append(evt) catch return false;
-            return true;
-        }
+        return parseEvent(self, win, args, &self.queue) catch false;
     }
     return false;
 }
@@ -241,28 +262,93 @@ fn getModifiers(keyboard: *const [256]u8) Modifiers {
     return modifiers;
 }
 
-const EventArgs = std.meta.Tuple(&.{ foundation.HWND, u32, usize, isize });
+/// Disables raw mouse input for the window that currently has the raw mouse input focus
+pub fn disableRawMouseInput(self: *@This()) void {
+    var device = [1]RAWINPUTDEVICE{.{
+        .usUsagePage = HID_USAGE_PAGE_GENERIC,
+        .usUsage = HID_USAGE_GENERIC_MOUSE,
+        .dwFlags = RIDEV_REMOVE,
+        .hwndTarget = null,
+    }};
 
-pub fn parseWindowId(args: EventArgs) usize {
-    return @intFromPtr(args[0]);
+    if (RegisterRawInputDevices((&device).ptr, 1, @sizeOf(RAWINPUTDEVICE)) == 0) {
+        self.raw_input = false;
+    }
 }
 
+/// Enable raw mouse delta's without any acceleration, normalization, etc.
+///
+/// This is the raw phyical device input from the system and should be processed furthure
+/// by the user to get the desired experience.
+///
+/// WARNING: This can only be enabled for a single window at a time for the parent process. If there
+/// is a window that already has raw mouse input then calling this method again will fail to apply
+/// raw mouse input to the new window.
+pub fn enableRawMouseInput(self: *@This(), window_id: usize, capture_unfocused: bool) !void {
+    if (self.windows.get(window_id)) |window| {
+        var flags = RAWINPUTDEVICE_FLAGS{};
+        if (capture_unfocused) flags.INPUTSINK = 1;
+
+        var device = [1]RAWINPUTDEVICE{.{
+            // https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/hid-usages#usage-page
+            // "Generic Desktop Controls" "HID_USAGE_PAGE_GENERIC"
+            .usUsagePage = HID_USAGE_PAGE_GENERIC,
+            // https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/hid-usages#usage-id
+            // "Mouse" "HID_USAGE_GENERIC_MOUSE"
+            .usUsage = HID_USAGE_GENERIC_MOUSE,
+            .dwFlags = flags,
+            .hwndTarget = window.handle,
+        }};
+
+        // Only if the registration succeeds will it be marked as raw input.
+        //
+        // This is because only one window can be declared as raw input at a time in windows.
+        // To switch raw input to another window first disable raw input for the window that is currently
+        // recieving raw input events.
+        const result = RegisterRawInputDevices((&device).ptr, 1, @sizeOf(RAWINPUTDEVICE));
+        if (result != 1) return error.RawMouseInputAlreadyEnabled;
+
+        self.raw_input = true;
+    }
+}
+
+const EventArgs = std.meta.Tuple(&.{ foundation.HWND, u32, usize, isize });
 var resize: ?util.RECT = null;
-pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
+fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !bool {
     const hwnd: foundation.HWND, const message: u32, const wparam: usize, const lparam: isize = args;
     _ = hwnd;
 
     switch (message) {
         // Request to close the window
         windows_and_messaging.WM_CLOSE => {
-            return .{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } };
+            std.debug.print("CLOSE Event\n", .{});
+            try queue.append(.{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } });
+            return true;
         },
         windows_and_messaging.WM_SYSCOMMAND => {
-            if ((wparam & 0xFFF0) == windows_and_messaging.SC_CLOSE)
-                return .{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } };
+            switch (wparam & 0xFFF0) {
+                windows_and_messaging.SC_CLOSE => {
+                    try queue.append(.{ .window = .{ .target = @intFromPtr(args[0]), .event = .close } });
+                    return true;
+                },
+                windows_and_messaging.SC_MINIMIZE => {
+                    try queue.append(.{ .window = .{ .target = @intFromPtr(args[0]), .event = .{ .visibility = .minimize } } });
+                    return false;
+                },
+                windows_and_messaging.SC_MAXIMIZE => {
+                    try queue.append(.{ .window = .{ .target = @intFromPtr(args[0]), .event = .{ .visibility = .maximize } } });
+                    return false;
+                },
+                windows_and_messaging.SC_RESTORE => {
+                    try queue.append(.{ .window = .{ .target = @intFromPtr(args[0]), .event = .{ .visibility = .restore } } });
+                    return false;
+                },
+                else => {},
+            }
         },
         windows_and_messaging.WM_DESTROY => {
-            return .{ .destroy = @intFromPtr(args[0]) };
+            try queue.append(.{ .destroy = @intFromPtr(args[0]) });
+            return true;
         },
         windows_and_messaging.WM_SETCURSOR => {
             // Set user defined cursor when the mouse moves within the window
@@ -271,25 +357,9 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
             // Allow for resize cursor to be drawn if cursor is at correct position
             // return windows_and_messaging.DefWindowProcW(hwnd, msg, wparam, lparam);
         },
-        util.WM_TRAYICON => {
-            const mouse: u32 = @bitCast(@as(i32, @intCast((@as(i16, @truncate(lparam))))));
-            if (mouse == windows_and_messaging.WM_CONTEXTMENU or mouse == windows_and_messaging.WM_RBUTTONUP) {
-                const selected = win.showSystemTray();
-                const menu_item = win.item_to_systray.getPtr(selected);
-                if (menu_item) |info| {
-                    return .{ .window = .{
-                        .target = @intFromPtr(args[0]),
-                        .event = .{
-                            .system_tray = .{
-                                .id = selected,
-                                .item = info,
-                            },
-                        },
-                    } };
-                }
-            } else if (mouse == windows_and_messaging.WM_LBUTTONUP) {
-                win.systemTrayOnClick(ev, win);
-            }
+        windows_and_messaging.WM_USER...0x7FFF => {
+            try queue.append(.{ .user = message -| windows_and_messaging.WM_USER });
+            return true;
         },
         windows_and_messaging.WM_COMMAND => {
             const wmId: u16 = @truncate(wparam);
@@ -297,7 +367,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
             if (wmEvent == 0) {
                 const menu_info = win.item_to_menubar.getPtr(@intCast(wmId));
                 if (menu_info) |info| {
-                    return .{ .window = .{
+                    try queue.append(.{ .window = .{
                         .target = @intFromPtr(args[0]),
                         .event = .{
                             .menu = .{
@@ -305,15 +375,17 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                                 .item = info,
                             },
                         },
-                    } };
+                    } });
+                    return true;
                 }
             } else if (wmEvent == 0x1800) {
-                return .{ .window = .{
+                try queue.append(.{ .window = .{
                     .target = @intFromPtr(args[0]),
                     .event = .{
                         .thumb = @intCast(wmId),
                     },
-                } };
+                } });
+                return true;
             }
         },
         // Keyboard input events
@@ -352,7 +424,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                 _ = std.unicode.utf16LeToUtf8(&data, buffer[0..]) catch unreachable;
 
                 if (data.len <= 4) {
-                    return .{ .window = .{
+                    try queue.append(.{ .window = .{
                         .target = @intFromPtr(args[0]),
                         .event = .{
                             .key_input = .{
@@ -363,7 +435,8 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                                 .virtual = virtual_key,
                             },
                         },
-                    } };
+                    } });
+                    return true;
                 }
             }
         },
@@ -375,7 +448,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
 
                 const modifiers: Modifiers = getModifiers(&keyboard);
 
-                return .{ .window = .{
+                try queue.append(.{ .window = .{
                     .target = @intFromPtr(args[0]),
                     .event = .{
                         .key_input = .{
@@ -384,9 +457,41 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                             .state = .pressed,
                         },
                     },
-                } };
+                } });
+                return true;
             }
             // return windows_and_messaging.DefWindowProcW(hwnd, uMsg, wparam, lparam);
+        },
+        windows_and_messaging.WM_INPUT => {
+            var size: u32 = 0;
+            const hraw: HRAWINPUT = @ptrFromInt(@as(usize, @intCast(lparam)));
+            if (GetRawInputData(hraw, RAW_INPUT_DATA_COMMAND_FLAGS.INPUT, null, &size, @sizeOf(RAWINPUTHEADER)) == 0) {
+                var allocator = ev.arena.allocator();
+
+                const buffer = try allocator.alloc(u8, @intCast(size));
+                defer allocator.free(buffer);
+
+                if (GetRawInputData(hraw, RAW_INPUT_DATA_COMMAND_FLAGS.INPUT, @ptrCast(buffer.ptr), &size, @sizeOf(RAWINPUTHEADER)) != 0) {
+                    const raw_input: *RAWINPUT = @ptrCast(@alignCast(buffer.ptr));
+                    if (raw_input.header.dwType != @as(u32, @intFromEnum(RIM_TYPEMOUSE))) return false;
+                    const m = raw_input.data.mouse;
+
+                    const is_absolute = (m.usFlags & MOUSE_MOVE_ABSOLUTE) != 0;
+                    if (!is_absolute) {
+                        const dx: i32 = @intCast(m.lLastX);
+                        const dy: i32 = @intCast(m.lLastY);
+                        if (dx != 0 or dy != 0) {
+                            try queue.append(.{ .window = .{
+                                .target = @intFromPtr(args[0]),
+                                .event = .{
+                                    .raw_input = .{ .x = dx, .y = dy },
+                                },
+                            } });
+                            return true;
+                        }
+                    }
+                }
+            }
         },
         // MouseMove event
         windows_and_messaging.WM_MOUSEMOVE => {
@@ -394,12 +499,13 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                 const pos: usize = @intCast(lparam);
                 const x: u16 = @truncate(pos);
                 const y: u16 = @truncate(pos >> 16);
-                return .{ .window = .{
+                try queue.append(.{ .window = .{
                     .target = @intFromPtr(args[0]),
                     .event = .{
                         .mouse_move = .{ .x = x, .y = y },
                     },
-                } };
+                } });
+                return true;
             }
         },
         // Mouse scrolling events
@@ -407,7 +513,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
             const params: isize = @intCast(wparam);
             const distance: i16 = @truncate(params >> 16);
 
-            return .{ .window = .{
+            try queue.append(.{ .window = .{
                 .target = @intFromPtr(args[0]),
                 .event = .{
                     .mouse_scroll = .{
@@ -415,13 +521,14 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                         .delta = distance,
                     },
                 },
-            } };
+            } });
+            return true;
         },
         windows_and_messaging.WM_MOUSEHWHEEL => {
             const params: isize = @intCast(wparam);
             const distance: i16 = @truncate(params >> 16);
 
-            return .{ .window = .{
+            try queue.append(.{ .window = .{
                 .target = @intFromPtr(args[0]),
                 .event = .{
                     .mouse_scroll = .{
@@ -429,72 +536,103 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                         .delta = distance,
                     },
                 },
-            } };
+            } });
+            return true;
         },
         // Mouse button events == MouseInput
-        windows_and_messaging.WM_LBUTTONDOWN => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .pressed, .button = .left },
-            },
-        } },
-        windows_and_messaging.WM_LBUTTONUP => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .released, .button = .left },
-            },
-        } },
-        windows_and_messaging.WM_MBUTTONDOWN => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .pressed, .button = .middle },
-            },
-        } },
-        windows_and_messaging.WM_MBUTTONUP => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .released, .button = .middle },
-            },
-        } },
-        windows_and_messaging.WM_RBUTTONDOWN => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .pressed, .button = .right },
-            },
-        } },
-        windows_and_messaging.WM_RBUTTONUP => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{ .state = .released, .button = .right },
-            },
-        } },
-        windows_and_messaging.WM_XBUTTONDOWN => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{
-                    .state = .pressed,
-                    .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+        windows_and_messaging.WM_LBUTTONDOWN => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .pressed, .button = .left },
                 },
-            },
-        } },
-        windows_and_messaging.WM_XBUTTONUP => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{
-                .mouse_input = .{
-                    .state = .released,
-                    .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_LBUTTONUP => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .released, .button = .left },
                 },
-            },
-        } },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_MBUTTONDOWN => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .pressed, .button = .middle },
+                },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_MBUTTONUP => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .released, .button = .middle },
+                },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_RBUTTONDOWN => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .pressed, .button = .right },
+                },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_RBUTTONUP => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{ .state = .released, .button = .right },
+                },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_XBUTTONDOWN => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{
+                        .state = .pressed,
+                        .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+                    },
+                },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_XBUTTONUP => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{
+                    .mouse_input = .{
+                        .state = .released,
+                        .button = if ((wparam >> 16) & 0x0001 == 0x0001) .x1 else .x2,
+                    },
+                },
+            } });
+            return true;
+        },
         // Check for focus and unfocus
-        windows_and_messaging.WM_SETFOCUS => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{ .focused = true },
-        } },
-        windows_and_messaging.WM_KILLFOCUS => return .{ .window = .{
-            .target = @intFromPtr(args[0]),
-            .event = .{ .focused = false },
-        } },
+        windows_and_messaging.WM_SETFOCUS => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{ .focused = true },
+            } });
+            return true;
+        },
+        windows_and_messaging.WM_KILLFOCUS => {
+            try queue.append(.{ .window = .{
+                .target = @intFromPtr(args[0]),
+                .event = .{ .focused = false },
+            } });
+            return true;
+        },
         windows_and_messaging.WM_SIZING => {
             const area: *util.RECT = @ptrFromInt(@as(usize, @bitCast(lparam)));
             resize = area.*;
@@ -502,7 +640,7 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
         windows_and_messaging.WM_EXITSIZEMOVE => {
             defer resize = null;
             if (resize) |dim| {
-                return .{ .window = .{
+                try queue.append(.{ .window = .{
                     .target = @intFromPtr(args[0]),
                     .event = .{
                         .resize = .{
@@ -510,18 +648,19 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                             .height = @bitCast(dim.bottom - dim.top),
                         },
                     },
-                } };
+                } });
+                return true;
             }
         },
         windows_and_messaging.WM_SIZE => {
             // If user is currently resizing the window
             // ignore this event as it is debounced into
             // a single event
-            if (resize != null) return null;
+            if (resize != null) return false;
 
             const width = @as(u16, @truncate(@as(usize, @bitCast(lparam))));
             const height = @as(u16, @intCast(lparam >> 16));
-            return .{ .window = .{
+            try queue.append(.{ .window = .{
                 .target = @intFromPtr(args[0]),
                 .event = .{
                     .resize = .{
@@ -529,12 +668,13 @@ pub fn parseEvent(ev: *@This(), win: *Window, args: EventArgs) ?QueuedEvent {
                         .height = height,
                     },
                 },
-            } };
+            } });
+            return true;
         },
-        else => return null,
+        else => {},
     }
 
-    return null;
+    return false;
 }
 
 fn handleThemeChange(state: ?*anyopaque, settings: *UISettings, _: *IInspectable) void {

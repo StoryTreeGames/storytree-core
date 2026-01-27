@@ -2,6 +2,7 @@ const std = @import("std");
 const input = @import("input.zig");
 
 const Window = @import("window.zig").Window;
+const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
@@ -110,8 +111,13 @@ pub const WindowEvent = union(enum) {
     mouse_input: MouseEvent,
     /// Mouse move event post
     mouse_move: Point(u16),
+    /// Mouse move event post
+    raw_input: Point(i32),
     /// Mouse scroll event post
     mouse_scroll: ScrollEvent,
+    /// Change in window visibility
+    visibility: Visibility,
+
     /// Menu item event
     menu: MenuEvent,
     /// SysTray Menu item event
@@ -132,6 +138,7 @@ pub const Event = union(enum) {
 pub const QueuedEvent = union(enum) {
     theme: ThemeEvent,
     destroy: usize,
+    user: u32,
     window: struct {
         target: usize,
         event: WindowEvent,

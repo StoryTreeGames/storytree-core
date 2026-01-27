@@ -358,6 +358,17 @@ pub fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, self: *@
                     .resizing => self.state.resizing = true,
                     else => {},
                 }
+
+                self.event_loop.queue.append(.{ .window = .{
+                    .target = @intFromPtr(self.surface),
+                    .event = .{
+                        .visibility = switch (state) {
+                            .fullscreen => .fullscreen,
+                            .maximized => .maximize,
+                            else => .restore,
+                        },
+                    },
+                } }) catch {};
             }
         },
         .close => self.event_loop.queue.append(.{

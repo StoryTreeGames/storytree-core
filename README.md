@@ -22,8 +22,10 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 ## TODO
 
-- [ ] Move dialog module to individual repo
-- [ ] Move notification module to individual repo
+- [ ] Move Dialog module to individual repo
+- [ ] Move Notification module to individual repo
+- [ ] Move System Tray module to individual repo
+- [ ] Move Window Menu module to individual repo
 
 - [-] Windows
   - [x] Basic window creation
@@ -54,6 +56,8 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [-] Keyboard
       - [ ] Finish keyboard input to support dead keys
     - [x] Mouse
+      - [x] Normal mouse input
+      - [x] Raw Mouse Input
     - [x] Resize
     - [x] Menu
     - [ ] Repaint
@@ -101,7 +105,9 @@ Hopefully this library will remain generic enough to be able to be used with mos
   - [ ] Event listening and handling
     - [x] Close 
     - [x] Keyboard
-    - [x] Mouse
+    - [-] Mouse
+      - [x] Normal mouse input
+      - [ ] Raw Mouse Input
     - [x] Resize
     - [ ] Menu 
     - [ ] Repaint
