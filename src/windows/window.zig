@@ -840,7 +840,7 @@ pub fn setSystemTray(self: *@This(), tip: []const u8, onclick: ?SystemTrayOnClic
             nid.cbSize = @sizeOf(NOTIFYICONDATAW);
             nid.hWnd = self.handle;
             nid.uID = ID_TRAY;
-            nid.uCallbackMessage = util.WM_TRAYICON;
+            nid.uCallbackMessage = windows_and_messaging.WM_USER + 1;
             nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
             nid.hIcon = getHIcon(self.icon);
 

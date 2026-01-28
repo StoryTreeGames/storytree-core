@@ -56,12 +56,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var n = try notif.Notification.send(allocator, null, "storytree-core-example-notif", .{
-        .title = "Test Notification",
-        .body = "Test notification from storytree core",
-    });
-    defer n.deinit();
-
     var app = App{ .allocator = allocator };
 
     var event_loop = try EventLoop.init(allocator);
@@ -79,17 +73,18 @@ pub fn main() !void {
         .action("quit", "Quit"),
     });
 
-    while (event_loop.isActive()) { 
+    while (event_loop.isActive()) {
         try event_loop.wait();
         while (event_loop.pop()) |e| {
             switch (e) {
                 .window => |we| {
                     try app.handleEvent(event_loop, we.target, we.event);
                 },
-                .theme => |theme| switch(theme) {
+                .theme => |theme| switch (theme) {
                     .light => std.debug.print("Now using light theme\n", .{}),
                     .dark => std.debug.print("Now using dark theme\n", .{}),
                 },
+                else => {},
             }
         }
     }

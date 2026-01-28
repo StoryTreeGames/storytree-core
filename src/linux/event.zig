@@ -155,6 +155,7 @@ pub fn pop(self: *@This()) ?Event {
         .destroy => |key| if (self.windows.fetchSwapRemove(key)) |window| {
             window.value.deinit();
         },
+        .user => |u| return .{ .user = u },
         .window => |we| if (self.windows.get(we.target)) |window| {
             return .{
                 .window = .{

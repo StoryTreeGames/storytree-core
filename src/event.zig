@@ -129,6 +129,7 @@ pub const WindowEvent = union(enum) {
 pub const ThemeEvent = enum { light, dark };
 pub const Event = union(enum) {
     theme: ThemeEvent,
+    user: u32,
     window: struct {
         target: *Window,
         event: WindowEvent,

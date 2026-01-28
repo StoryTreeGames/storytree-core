@@ -10,7 +10,6 @@ const examples = [_]Example{
     // .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
     .{ .name = "dialog", .path = EXAMPLES ++ "/dialog.zig" },
     .{ .name = "window_menu", .path = EXAMPLES ++ "/menu.zig" },
-    .{ .name = "notification", .path = EXAMPLES ++ "/notification.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
