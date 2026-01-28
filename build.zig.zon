@@ -20,6 +20,10 @@
             .url = "git+https://github.com/Tired-Fox/windows-zig?ref=main#148c5f3db96b438cc9c5af0d1aff919f5f690ebb",
             .hash = "windows-0.0.0-kXMVSl_5GAJ6SLok0kDRdAddYL3TjHPFQHTNSjP4uZw1",
         },
+        .dialog = .{
+            .url = "git+https://github.com/StoryTreeGames/dialog#f1d5ff2cbab5a16b279dc47cb5745f77b39b1be3",
+            .hash = "dialog-0.0.0-lBg-s8VvAACF51cVo_WlOI415J1PlEgGENmVxnV6r2ZF",
+        },
     },
     .paths = .{
         "src",

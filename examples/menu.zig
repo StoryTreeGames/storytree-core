@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const dialog = @import("dialog");
 const core = @import("storytree-core");
 const event = core.event;
 
@@ -29,13 +30,13 @@ pub const App = struct {
                     menu.toggle(self.watch);
                 },
                 id("file::open") => {
-                    _ = core.dialog.open(arena.allocator(), .{ .filters = &.{
+                    _ = dialog.open(arena.allocator(), .{ .filters = &.{
                         .{ "Herb Guide (*.hgd)", "*.hgd" },
                         .{ "All types (*.*)", "*.*" },
                     }, .title = "Open Herb Guide" }) catch {};
                 },
                 id("file::save-as") => {
-                    _ = core.dialog.save(arena.allocator(), .{
+                    _ = dialog.save(arena.allocator(), .{
                         .file_name = "guide.hgd",
                         .filters = &.{
                             .{ "Herb Guide (*.hgd)", "*.hgd" },

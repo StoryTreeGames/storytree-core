@@ -4,7 +4,6 @@ pub const cursor = @import("cursor.zig");
 pub const icon = @import("icon.zig");
 pub const input = @import("input.zig");
 pub const event = @import("event.zig");
-pub const dialog = @import("dialog.zig");
 pub const menu = @import("menu.zig");
 pub const drag_drop = @import("drag_drop.zig");
 

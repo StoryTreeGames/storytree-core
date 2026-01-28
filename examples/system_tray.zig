@@ -6,9 +6,9 @@ const win32 = windows.win32;
 const shell = win32.ui.shell;
 const windows_and_messaging = win32.ui.windows_and_messaging;
 
+const dialog = @import("dialog");
 const core = @import("storytree-core");
 const event = core.event;
-const dialog = core.dialog;
 const input = core.input;
 const menu = core.menu;
 
@@ -30,7 +30,7 @@ pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !v
                         else => window.restore(),
                     }
                 },
-                else => {}
+                else => {},
             }
         },
         else => {},
@@ -62,7 +62,7 @@ pub fn main() !void {
         .icon = .{ .custom = path },
         // System tray requires a window. However we can hide it so that only the
         // system tray icon is visible.
-        .show = .hidden
+        .show = .hidden,
     });
 
     try window.setSystemTray("Some Tip", systrayOnClick, &.{

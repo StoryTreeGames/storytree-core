@@ -22,7 +22,7 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 ## TODO
 
-- [ ] Move Dialog module to individual repo
+- [x] Move Dialog module to individual repo
 - [x] Move Notification module to individual repo
 - [ ] Move System Tray module to individual repo
 - [ ] Move Window Menu module to individual repo

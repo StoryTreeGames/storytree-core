@@ -22,11 +22,7 @@ const State = struct {
 
     pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
-            .close => {
-                if (core.dialog.message(.yes_no, .{ .icon = .warning, .title = "Exit", .message = "Are you sure you want to exit the application?" }) == .yes) {
-                    event_loop.closeWindow(window.id());
-                }
-            },
+            .close => event_loop.closeWindow(window.id()),
             .thumb => |thumb| {
                 // The windows thumb bar buttons have IDs equal to the index they were defined
                 // when calling `window.setThumbBar([]ThumbBar.Button)`
