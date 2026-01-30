@@ -17,8 +17,8 @@
             .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
         },
         .windows = .{
-            .url = "git+https://github.com/Tired-Fox/windows-zig?ref=main#148c5f3db96b438cc9c5af0d1aff919f5f690ebb",
-            .hash = "windows-0.0.0-kXMVSl_5GAJ6SLok0kDRdAddYL3TjHPFQHTNSjP4uZw1",
+            .url = "git+https://github.com/Tired-Fox/windows-zig#36dfc4c9292bf5ad1cca8614f9c76482d7c41427",
+            .hash = "windows-0.0.2-kXMVSkjSSgIXhzB6csFPSn4ekcuUdgG5YMJDWiY5OLhp",
         },
         .dialog = .{
             .url = "git+https://github.com/StoryTreeGames/dialog#f1d5ff2cbab5a16b279dc47cb5745f77b39b1be3",

@@ -902,20 +902,20 @@ pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
         handler.deinit();
         self.drag_drop = null;
         const hr = ole.RevokeDragDrop(self.handle);
-        if (hr != 0) return windows.core.hresultToError(hr).err;
+        if (hr != 0) try windows.core.hresultToError(hr);
         ole.OleUninitialize();
     }
 
     if (context) |ctx| {
         var hr = ole.OleInitialize(null);
-        if (hr != 0) return windows.core.hresultToError(hr).err;
+        if (hr != 0) try windows.core.hresultToError(hr);
 
         self.drag_drop = dnd.DropTarget.init(allocator, ctx);
         self.drag_drop_handler = try dnd_win.DropTargetHandler.init(self.handle, &self.drag_drop.?);
         errdefer self.drag_drop_handler.?.deinit();
 
         hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
-        if (hr != 0) return windows.core.hresultToError(hr).err;
+        if (hr != 0) try windows.core.hresultToError(hr);
     }
 }
 

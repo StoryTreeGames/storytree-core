@@ -519,7 +519,7 @@ pub const DropTargetHandler = extern struct {
 
         var p: *IDropTargetHelper = undefined;
         const hr = com.CoCreateInstance(&CLSID_DragDropHelper, null, com.CLSCTX_INPROC_SERVER, shell.IID_IDropTargetHelper, @ptrCast(&p));
-        if (hr != 0) return windows.core.hresultToError(hr).err;
+        if (hr != 0) try windows.core.hresultToError(hr);
         self.helper = p;
 
         return self;

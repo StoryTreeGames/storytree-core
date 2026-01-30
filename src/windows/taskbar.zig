@@ -259,7 +259,7 @@ pub const Icon = union(enum) {
                     .information => @as([*:0]align(1) const u16, @ptrFromInt(@as(usize, @intCast(win32.ui.windows_and_messaging.IDI_INFORMATION)))),
                 };
                 return @ptrCast(win32.ui.windows_and_messaging.LoadImageW(null, path, .ICON, 16, 16, LR_SHARED));
-            }
+            },
         }
     }
 
@@ -464,7 +464,7 @@ pub const JumpList = struct {
 ///     (Default)          (REG_SZ) "Storytree.story"
 ///     OpenWithProgids\
 ///         Storytree.story (REG_NONE or REG_SZ) ""   ; empty data
-/// 
+///
 /// HKCU\Software\Classes\Storytree.story\
 ///     (Default)          (REG_SZ) "Storytree Document"
 ///     FriendlyTypeName   (REG_SZ) "Storytree Document"
@@ -522,7 +522,7 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
         if (!ok(removed.GetAt(@intCast(i), &IUnknown.IID, @ptrCast(&r)))) continue;
 
         var item_unk: ?*anyopaque = undefined;
-        if (ok(r.QueryInterface(IID_IShellLinkW, &item_unk)) and item_unk != null) {
+        if (r.QueryInterface(IID_IShellLinkW, &item_unk)) {
             const item: *IShellLinkW = @ptrCast(@alignCast(item_unk.?));
 
             var hasher = std.hash.Wyhash.init(0);
@@ -545,17 +545,19 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
             }
 
             try removed_lookup.put(allocator, hasher.final(), {});
-        } else if (ok(r.QueryInterface(IID_IShellItem, &item_unk)) and item_unk != null) {
-            const item: *IShellItem = @ptrCast(@alignCast(item_unk.?));
+        } else |_| {
+            if (r.QueryInterface(IID_IShellItem, &item_unk)) {
+                const item: *IShellItem = @ptrCast(@alignCast(item_unk.?));
 
-            var name: ?[*:0]u16 = null;
-            defer CoTaskMemFree(@ptrCast(name));
-            _ = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &name);
+                var name: ?[*:0]u16 = null;
+                defer CoTaskMemFree(@ptrCast(name));
+                _ = item.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &name);
 
-            var buffer: [260]u8 = undefined;
-            const size = try std.unicode.utf16LeToUtf8(&buffer, std.mem.sliceTo(name.?, 0));
+                var buffer: [260]u8 = undefined;
+                const size = try std.unicode.utf16LeToUtf8(&buffer, std.mem.sliceTo(name.?, 0));
 
-            try removed_lookup.put(allocator, std.hash.Wyhash.hash(0, buffer[0..size]), {});
+                try removed_lookup.put(allocator, std.hash.Wyhash.hash(0, buffer[0..size]), {});
+            } else |_| {}
         }
     }
 
@@ -689,7 +691,7 @@ pub fn setJumpList(self: *@This(), allocator: std.mem.Allocator, list: JumpList)
                             _ = task_collection.AddObject(@ptrCast(shell_item));
                             _ = IUnknown.Release(@ptrCast(shell_item));
                         }
-                    }
+                    },
                 }
             }
 
@@ -733,14 +735,14 @@ fn makeLink(title: [*:0]const u16, exe_path: [*:0]const u16, args: [*:0]const u1
 
     // Set the display text via IPropertyStore/PKEY_Title
     var ps: ?*IPropertyStore = null;
-    if (ok(IUnknown.QueryInterface(@ptrCast(link), IID_IPropertyStore, @ptrCast(&ps)))) {
+    if (IUnknown.QueryInterface(@ptrCast(link), IID_IPropertyStore, @ptrCast(&ps))) {
         var pv: PROPVARIANT = undefined;
         _ = InitPropVariantFromString(title, &pv);
         _ = ps.?.SetValue(&PKEY_Title, &pv);
         _ = ps.?.Commit();
         _ = PropVariantClear(&pv);
         _ = IUnknown.Release(@ptrCast(ps.?));
-    }
+    } else |_| {}
     return link;
 }
 

@@ -5,11 +5,9 @@ This project serves as a part of a larger project to create a game engine from s
 Any tips, PRs, and overall help are more than welcome.
 
 > ⚠️ Warn: This repo is currently exploratory and the API is subject to change with every merge into the main branch
-> To help with the volatile nature, this project will be split into a develop and a main branch.
 
 ## Goal
 
-A native windowing library cross-compiling without any fuss or problems to Windows, Linux (X11 + Wayland), MacOS, iOS, and Android. Supported platforms will include Windows, Linux (X11 + Wayland), MacOS; and will be expanded to Web, IOS, and Android in the future.
 
 The library is written in as much pure Zig as possible to provide an easy to use API with minimal dependencies. There is nothing wrong with using GLFW and other related libraries, I just want to try to create something new. This library will start off basic and naïve and grow to be intuitive, easy to use, and full of platform specific opt in features.
 

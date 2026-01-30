@@ -1,10 +1,14 @@
 const std = @import("std");
-const win32 = @import("windows").win32;
+const winapi = @import("windows");
+const win32 = winapi.win32;
 
-const UISettings = @import("windows").UI.ViewManagement.UISettings;
-const TypedEventHandler = @import("windows").Foundation.TypedEventHandler;
-const IInspectable = @import("windows").Foundation.IInspectable;
-const EventRegistrationToken = @import("windows").Foundation.EventRegistrationToken;
+const UISettings = winapi.UI.ViewManagement.UISettings;
+const TypedEventHandler = winapi.Foundation.TypedEventHandler;
+const EventHandler = winapi.Foundation.EventHandler;
+const IInspectable = winapi.Foundation.IInspectable;
+const EventRegistrationToken = winapi.Foundation.EventRegistrationToken;
+const Gamepad = winapi.Gaming.Input.Gamepad;
+const GamepadReading = winapi.Gaming.Input.GamepadReading;
 
 const windows_and_messaging = win32.ui.windows_and_messaging;
 const graphics = win32.graphics;
@@ -41,7 +45,6 @@ const Modifiers = event.Modifiers;
 const EventQueue = event.EventQueue;
 const Event = event.Event;
 const QueuedEvent = event.QueuedEvent;
-const EventHandler = event.EventHandler;
 
 const MSG = windows_and_messaging.MSG;
 const GetMessageW = windows_and_messaging.GetMessageW;
@@ -69,11 +72,27 @@ const HWND = foundation.HWND;
 
 const PRESSED: u8 = 0b10000000;
 
+pub fn GamepadHandler(remove: *const fn (token: EventRegistrationToken) winapi.core.HResult!void) type {
+    return struct {
+        handler: *EventHandler(Gamepad),
+        token: EventRegistrationToken,
+        pub fn deinit(self: *const @This()) void {
+            remove(self.token) catch {};
+            self.handler.deinit();
+        }
+    };
+}
+
 arena: std.heap.ArenaAllocator,
 
 is_exit: bool,
 windows: std.AutoArrayHashMapUnmanaged(usize, *Window),
 queue: EventQueue,
+
+gamepads: std.AutoArrayHashMapUnmanaged(usize, GamepadReading),
+
+gamepad_added_handler: GamepadHandler(Gamepad.removeGamepadAdded),
+gamepad_removed_handler: GamepadHandler(Gamepad.removeGamepadRemoved),
 
 raw_input: bool = false,
 ui_settings: *UISettings,
@@ -81,6 +100,20 @@ theme_change_handler: struct {
     instance: *TypedEventHandler(UISettings, IInspectable),
     handle: EventRegistrationToken,
 },
+
+fn handleGamepadAdded(state: ?*anyopaque, sender: *IInspectable, args: *Gamepad) void {
+    _ = sender;
+    const this: *@This() = @ptrCast(@alignCast(state.?));
+    _ = this;
+    std.debug.print("Gamepad Added: {d}", .{@intFromPtr(args)});
+}
+
+fn handleGamepadRemoved(state: ?*anyopaque, sender: *IInspectable, args: *Gamepad) void {
+    _ = sender;
+    const this: *@This() = @ptrCast(@alignCast(state.?));
+    _ = this;
+    std.debug.print("Gamepad Removed: {d}", .{@intFromPtr(args)});
+}
 
 pub fn init(allocator: std.mem.Allocator) !*@This() {
     const self = try allocator.create(@This());
@@ -96,6 +129,17 @@ pub fn init(allocator: std.mem.Allocator) !*@This() {
     const cvc_handler = try TypedEventHandler(UISettings, IInspectable).initWithState(handleThemeChange, self);
     errdefer cvc_handler.deinit();
     const cvc_handle = try self.ui_settings.addColorValuesChanged(cvc_handler);
+
+    const gamepad_added_handler = try EventHandler(Gamepad).initWithState(handleGamepadAdded, self);
+    self.gamepad_added_handler = .{
+        .handler = gamepad_added_handler,
+        .token = try Gamepad.addGamepadAdded(gamepad_added_handler),
+    };
+    const gamepad_removed_handler = try EventHandler(Gamepad).initWithState(handleGamepadRemoved, self);
+    self.gamepad_removed_handler = .{
+        .handler = gamepad_removed_handler,
+        .token = try Gamepad.addGamepadRemoved(gamepad_removed_handler),
+    };
 
     self.theme_change_handler = .{
         .instance = cvc_handler,
@@ -116,6 +160,9 @@ pub fn deinit(self: *@This()) void {
     self.ui_settings.removeColorValuesChanged(self.theme_change_handler.handle) catch {};
     self.theme_change_handler.instance.deinit();
     self.ui_settings.deinit();
+
+    self.gamepad_added_handler.deinit();
+    self.gamepad_removed_handler.deinit();
 
     self.windows.deinit(allocator);
     self.queue.deinit();
