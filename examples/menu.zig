@@ -1,16 +1,16 @@
 const std = @import("std");
 
 const dialog = @import("dialog");
-const core = @import("storytree-core");
-const event = core.event;
+const zinit = @import("zinit");
+const event = zinit.event;
 
-const notif = core.notification;
+const notif = zinit.notification;
 
-const Window = core.window.Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 const WindowEvent = event.WindowEvent;
-const id = core.menu.id;
+const id = zinit.menu.id;
 
 pub const App = struct {
     allocator: std.mem.Allocator,

@@ -2,12 +2,12 @@ const std = @import("std");
 
 const windows = @import("windows");
 
-const core = @import("storytree-core");
-const event = core.event;
-const input = core.input;
-const drag_drop = core.drag_drop;
+const zinit = @import("zinit");
+const event = zinit.event;
+const input = zinit.input;
+const drag_drop = zinit.drag_drop;
 
-const Window = core.window.Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
 const WindowEvent = event.WindowEvent;
 
@@ -25,7 +25,7 @@ pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !v
     }
 }
 
-fn onDrag(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) !DropEffect {
+fn onDrag(state: ?*anyopaque, point: zinit.Point(u32), key_state: DragKeyState) !DropEffect {
     _ = state;
     _ = point;
 
@@ -34,7 +34,7 @@ fn onDrag(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState) !
     return .copy;
 }
 
-fn onDrop(state: ?*anyopaque, point: core.Point(u32), key_state: DragKeyState, data: DropData) !DropEffect {
+fn onDrop(state: ?*anyopaque, point: zinit.Point(u32), key_state: DragKeyState, data: DropData) !DropEffect {
     _ = state;
     _ = point;
 

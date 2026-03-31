@@ -2,11 +2,11 @@ const std = @import("std");
 const common = @import("common.zig");
 const TargetTag = @import("builtin").target.os.tag;
 
-const core = @import("storytree-core");
-const event = core.event;
-const input = core.input;
+const zinit = @import("zinit");
+const event = zinit.event;
+const input = zinit.input;
 
-const Window = core.window.Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
 const WindowEvent = event.WindowEvent;
 

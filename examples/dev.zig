@@ -2,18 +2,18 @@ const std = @import("std");
 const common = @import("common.zig");
 const TargetTag = @import("builtin").target.os.tag;
 
-const core = @import("storytree-core");
-const event = core.event;
-const input = core.input;
+const zinit = @import("zinit");
+const event = zinit.event;
+const input = zinit.input;
 
-const Window = core.window.Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
 const WindowEvent = event.WindowEvent;
 
 const State = struct {
     allocator: std.mem.Allocator,
     icons: []const []const u8,
-    cursor: core.cursor.Cursor = .Default,
+    cursor: zinit.cursor.Cursor = .Default,
     pos: enum { tl, tr, bl, br } = .tl,
     fullscreen: bool = false,
 
@@ -23,52 +23,8 @@ const State = struct {
     pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
             .close => event_loop.closeWindow(window.id()),
-            .thumb => |thumb| {
-                // The windows thumb bar buttons have IDs equal to the index they were defined
-                // when calling `window.setThumbBar([]ThumbBar.Button)`
-                switch (thumb) {
-                    // Prev
-                    0 => {
-                        std.debug.print("Previous\n", .{});
-                    },
-                    // Play/Pause
-                    1 => {
-                        std.debug.print("Play/Pause\n", .{});
-                        self.playing = !self.playing;
-                        if (self.playing) {
-                            std.debug.print("Set Icon To Pause\n", .{});
-                            try window.taskbar.updateIcon(1, .{ .custom = self.icons[2] });
-                            try window.taskbar.updateTooltip(1, "Pause");
-                        } else {
-                            std.debug.print("Set Icon To Play\n", .{});
-                            try window.taskbar.updateIcon(1, .{ .custom = self.icons[1] });
-                            try window.taskbar.updateTooltip(1, "Play");
-                        }
-                    },
-                    // Next
-                    2 => {
-                        std.debug.print("Next\n", .{});
-                    },
-                    else => {},
-                }
-            },
             .key_input => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
-                if (key_event.matches(' ', .{}) and TargetTag == .windows) {
-                    try window.setJumpList(.{
-                        .recent = true,
-                        .frequent = true,
-                        .tasks = &.{.{ .label = "Play", .args = "--play" }},
-                        .categories = &.{
-                            .{
-                                .label = "Custom",
-                                .items = &.{
-                                    .{ .link = .{ .label = "Play", .args = "--play", .icon = "assets/play.ico" } },
-                                },
-                            },
-                        },
-                    });
-                }
                 if (key_event.matches(.f11, .{})) {
                     if (self.fullscreen) window.restore() else try window.fullscreen();
                     self.fullscreen = !self.fullscreen;
@@ -76,7 +32,7 @@ const State = struct {
 
                 if (key_event.matches('b', .{})) {
                     std.debug.print("[SPACE]: {any}\n", .{input.getKeyDown(' ')});
-                    std.debug.print("[LEFT CLICK]: {any}\n", .{core.cursor.getMouseButton(.left)});
+                    std.debug.print("[LEFT CLICK]: {any}\n", .{zinit.cursor.getMouseButton(.left)});
                 }
 
                 if (key_event.matches(.tab, .{ .shift = false })) {
@@ -92,7 +48,7 @@ const State = struct {
                 if (key_event.matches(.tab, .{ .shift = true })) {
                     var new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(self.cursor.icon))))) - 1;
                     if (new_cursor < 0) {
-                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(core.cursor.CursorType.zoom_in))))) + new_cursor + 1;
+                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(zinit.cursor.CursorType.zoom_in))))) + new_cursor + 1;
                     }
                     self.cursor = .{ .icon = @enumFromInt(new_cursor) };
 
@@ -104,13 +60,6 @@ const State = struct {
 
                 if (key_event.matches(.right, .{})) {
                     self.progress = @min(100, self.progress +| 10);
-                    if (TargetTag == .windows) {
-                        try window.setTaskbarProgress(
-                            if (self.progress == 100) .ERROR else .NORMAL,
-                            self.progress,
-                            100,
-                        );
-                    }
 
                     const client = window.getClientRect();
                     switch (self.pos) {
@@ -127,13 +76,6 @@ const State = struct {
 
                 if (key_event.matches(.left, .{})) {
                     self.progress -|= 10;
-                    if (TargetTag == .windows) {
-                        try window.setTaskbarProgress(
-                            if (self.progress == 0) .INDETERMINATE else .NORMAL,
-                            self.progress,
-                            100,
-                        );
-                    }
                     const client = window.getClientRect();
                     switch (self.pos) {
                         .tl, .tr => {
@@ -226,42 +168,12 @@ pub fn main() !void {
 
     const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.icon)});
     defer allocator.free(title);
-    const win = try event_loop.createWindow(.{
+    _ = try event_loop.createWindow(.{
         .title = title,
         .width = 800,
         .height = 600,
         .icon = .{ .custom = "assets\\icon.ico" },
     });
-
-    if (TargetTag == .windows) {
-        try win.setThumbBar(&.{ .{
-            .icon = .{ .custom = prev_icon },
-            .tooltip = "Prev",
-            .dismiss_on_click = true,
-        }, .{
-            .icon = .{ .custom = play_icon },
-            .tooltip = "Play",
-            .dismiss_on_click = true,
-        }, .{
-            .icon = .{ .custom = next_icon },
-            .tooltip = "Next",
-            .dismiss_on_click = true,
-        } });
-
-        try win.setJumpList(.{
-            .recent = true,
-            .frequent = true,
-            .tasks = &.{.{ .label = "Play", .args = "--play" }},
-            .categories = &.{
-                .{
-                    .label = "Custom",
-                    .items = &.{
-                        .{ .link = .{ .label = "Play", .args = "--play", .icon = "assets/play.ico" } },
-                    },
-                },
-            },
-        });
-    }
 
     while (event_loop.isActive()) {
         try event_loop.wait();

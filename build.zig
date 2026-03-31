@@ -2,15 +2,13 @@ const std = @import("std");
 const Tag = std.Target.Os.Tag;
 const builtin = @import("builtin");
 
-const NAME = "storytree-core";
+const NAME = "zinit";
 const EXAMPLES = "examples";
 
 const examples = [_]Example{
     .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
     // .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
-    .{ .name = "window_menu", .path = EXAMPLES ++ "/menu.zig" },
     .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
-    .{ .name = "system_tray", .path = EXAMPLES ++ "/system_tray.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
     .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
 };

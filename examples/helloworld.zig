@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const core = @import("storytree-core");
-const event = core.event;
+const zinit = @import("zinit");
+const event = zinit.event;
 
-const Window = core.window.Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
 const Event = event.Event;
 const WindowEvent = event.WindowEvent;

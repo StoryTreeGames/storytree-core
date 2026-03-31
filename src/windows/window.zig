@@ -2,18 +2,10 @@
 
 const std = @import("std");
 
-const TaskBar = @import("taskbar.zig");
-
 const Rect = @import("../root.zig").Rect;
 
 const dnd = @import("../drag_drop.zig");
 const dnd_win = @import("drag_drop.zig");
-
-const _menu = @import("../menu.zig");
-const MenuInfo = _menu.Info;
-const MenuItem = _menu.Item;
-const MenuCheckable = _menu.Checkable;
-const MenuAction = _menu.Action;
 
 const windows = @import("windows");
 const win32 = windows.win32;
@@ -43,20 +35,17 @@ const EventLoop = @import("../event.zig").EventLoop;
 
 const DestroyIcon = windows_and_messaging.DestroyIcon;
 const DestroyCursor = windows_and_messaging.DestroyCursor;
-const DestroyMenu = windows_and_messaging.DestroyMenu;
 
 const Shell_NotifyIconW = shell.Shell_NotifyIconW;
 const NIM_ADD = shell.NIM_ADD;
 const NIM_MODIFY = shell.NIM_MODIFY;
 const NIM_DELETE = shell.NIM_DELETE;
 const NIM_SETVERSION = shell.NIM_SETVERSION;
-const NOTIFYICON_VERSION_4 = shell.NOTIFYICON_VERSION_4;
 
 const NOTIFYICONDATAW = shell.NOTIFYICONDATAW;
 const HICON = windows_and_messaging.HICON;
 const HCURSOR = windows_and_messaging.HCURSOR;
 const HWND = foundation.HWND;
-const HMENU = windows_and_messaging.HMENU;
 
 const ID_TRAY = 1001;
 
@@ -74,124 +63,6 @@ const Cursor = union(enum) {
     },
 };
 
-pub const MenuContext = struct {
-    allocator: std.mem.Allocator,
-    count: *usize,
-    current: HMENU,
-    menus: *std.ArrayListUnmanaged(HMENU),
-    itemToMenu: *std.AutoArrayHashMapUnmanaged(usize, MenuInfo),
-
-    pub fn sub(self: *@This(), inner: HMENU) @This() {
-        return .{
-            .allocator = self.allocator,
-            .count = self.count,
-            .menus = self.menus,
-            .itemToMenu = self.itemToMenu,
-            .current = inner,
-        };
-    }
-
-    pub fn appendSeparator(self: *@This()) !void {
-        if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_SEPARATOR, 0, null) == 0) {
-            return error.AppendMenuSeparator;
-        }
-    }
-
-    pub fn appendAction(self: *@This(), action: MenuAction) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, action.label.len, 0);
-        @memcpy(label, action.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = action.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{ .action = .{ .label = label } },
-        });
-        if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_STRING, self.count.*, label.ptr) == 0) {
-            return error.AppendMenuAction;
-        }
-    }
-
-    pub fn appendToggle(self: *@This(), checkable: MenuCheckable) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, checkable.label.len, 0);
-        @memcpy(label, checkable.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = checkable.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{
-                .toggle = .{ .label = label },
-            },
-        });
-        if (windows_and_messaging.AppendMenuA(
-            self.current,
-            if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED,
-            self.count.*,
-            label.ptr,
-        ) == 0) {
-            return error.AppendMenuToggle;
-        }
-    }
-
-    pub fn appendRadioGroup(self: *@This(), items: []const MenuCheckable) !void {
-        const start = self.count.* + 1;
-        const end = start + items.len;
-
-        for (items) |item| {
-            try self.appendRadioItem(item, start, end);
-        }
-    }
-
-    pub fn appendRadioItem(self: *@This(), checkable: MenuCheckable, start: usize, end: usize) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, checkable.label.len, 0);
-        @memcpy(label, checkable.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = checkable.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{
-                .radio = .{
-                    .group = .{ start, end },
-                    .label = label,
-                },
-            },
-        });
-        if (windows_and_messaging.AppendMenuA(
-            self.current,
-            if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED,
-            self.count.*,
-            label.ptr,
-        ) == 0) {
-            return error.AppendMenuRadioItem;
-        }
-    }
-
-    pub fn appendMenu(self: *@This(), items: []const MenuItem) !void {
-        for (items) |item| {
-            switch (item) {
-                .separator => try self.appendSeparator(),
-                .action_item => |action| try self.appendAction(action),
-                .toggle_item => |toggle| try self.appendToggle(toggle),
-                .radio_group_item => |group| try self.appendRadioGroup(group),
-                .menu_item => |subMenu| {
-                    const innerMenu = windows_and_messaging.CreatePopupMenu().?;
-                    try self.menus.append(self.allocator, innerMenu);
-                    if (windows_and_messaging.AppendMenuA(
-                        self.current,
-                        windows_and_messaging.MF_POPUP,
-                        @intFromPtr(innerMenu),
-                        subMenu.label.ptr,
-                    ) == 0) {
-                        return error.AppendMenuSubmenu;
-                    }
-
-                    var inner = self.sub(innerMenu);
-                    try inner.appendMenu(subMenu.items);
-                },
-            }
-        }
-    }
-};
-
 arena: std.heap.ArenaAllocator,
 
 title: [:0]const u16 = undefined,
@@ -207,17 +78,6 @@ cursor: Cursor = .{ .icon = .default },
 theme: Win.Theme = .system,
 current_theme: Win.Theme = .dark,
 
-menus: std.ArrayListUnmanaged(HMENU) = .empty,
-item_to_menubar: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
-
-system_tray: ?struct {
-    tip: [:0]const u16,
-    popup: ?HMENU = null,
-    onclick: ?SystemTrayOnClick = null,
-} = null,
-systray_menus: std.ArrayListUnmanaged(HMENU) = .empty,
-item_to_systray: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
-
 fullscreen_state: ?struct {
     client: util.RECT,
     style: windows_and_messaging.WINDOW_STYLE,
@@ -227,8 +87,6 @@ fullscreen_state: ?struct {
 
 drag_drop: ?dnd.DropTarget = null,
 drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
-
-taskbar: TaskBar = undefined,
 
 /// Reference to the event loops UISettings instance
 ui_settings: *UISettings,
@@ -339,11 +197,8 @@ pub fn init(
     try win.setCursor(options.cursor);
     try win.setIcon(options.icon);
 
-    win.taskbar = try TaskBar.init(win.handle);
-
     if (options.show == .fullscreen) {
         win.fullscreen() catch {};
-        _ = win.taskbar.markFullscreen(win.handle, true);
     }
 
     return win;
@@ -368,29 +223,12 @@ pub fn deinit(self: *@This()) void {
         _ = DestroyCursor(self.cursor.custom.handle);
     }
 
-    self.taskbar.deinit(self.arena.allocator());
-
-    // Free allocated menu bar memory
-    for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
-
     // Unregister the class
     _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
 
     const parent = self.arena.child_allocator;
     self.arena.deinit();
     parent.destroy(self);
-}
-
-pub fn setJumpList(self: *@This(), list: TaskBar.JumpList) !void {
-    try self.taskbar.setJumpList(self.arena.allocator(), list);
-}
-
-pub fn setThumbBar(self: *@This(), buttons: []const TaskBar.Button) !void {
-    try self.taskbar.addButtons(self.arena.allocator(), buttons);
-}
-
-pub fn setTaskbarProgress(self: *@This(), state: TaskBar.TBPFLAG, completed: u64, total: u64) !void {
-    try self.taskbar.setProgress(state, completed, total);
 }
 
 pub fn id(self: *const @This()) usize {
@@ -468,8 +306,6 @@ pub fn restore(self: *@This()) void {
         }
 
         self.fullscreen_state = null;
-
-        _ = self.taskbar.markFullscreen(self.handle, false);
     } else {
         showWindow(self.handle, .restore);
     }
@@ -547,22 +383,6 @@ pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
         windows_and_messaging.ICON_BIG,
         @intCast(@as(usize, @intFromPtr(hIcon))),
     );
-
-    // Update system tray to use new icon
-    if (self.system_tray) |tray| {
-        var nid = std.mem.zeroes(NOTIFYICONDATAW);
-        nid.cbSize = @sizeOf(NOTIFYICONDATAW);
-        nid.hWnd = self.handle;
-        nid.uID = ID_TRAY;
-        nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
-        nid.hIcon = hIcon;
-
-        const tip_len = @min(tray.tip.len, nid.szTip.len);
-        @memcpy(nid.szTip[0..tip_len], tray.tip[0..tip_len]);
-        nid.szTip[tip_len] = 0;
-
-        _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
-    }
 }
 
 /// Set window cursor
@@ -683,8 +503,6 @@ pub fn fullscreen(self: *@This()) !void {
             windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
         );
     }
-
-    _ = self.taskbar.markFullscreen(self.handle, true);
 }
 
 /// Get the current area that is used for rendering
@@ -729,44 +547,6 @@ pub fn setCurrentTheme(self: *@This(), theme: Win.Theme) void {
     }
 }
 
-pub fn setMenu(self: *@This(), new_menu: ?[]const MenuItem) !void {
-    const allocator = self.arena.allocator();
-
-    for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
-    for (self.item_to_menubar.values()) |v| switch (v.payload) {
-        .toggle => |t| allocator.free(t.label),
-        .action => |a| allocator.free(a.label),
-        .radio => |r| allocator.free(r.label),
-    };
-    self.menus.clearAndFree(allocator);
-    self.item_to_menubar.clearAndFree(allocator);
-
-    var rootMenu: ?HMENU = null;
-    if (new_menu) |userMenu| {
-        if (userMenu.len > 0) {
-            rootMenu = windows_and_messaging.CreateMenu().?;
-            try self.menus.append(allocator, rootMenu.?);
-
-            var count: usize = 0;
-            var context = MenuContext{
-                .allocator = allocator,
-                .current = rootMenu.?,
-                .menus = &self.menus,
-                .itemToMenu = &self.item_to_menubar,
-                .count = &count,
-            };
-
-            try context.appendMenu(userMenu);
-
-            _ = windows_and_messaging.SetMenu(self.handle, rootMenu);
-            _ = windows_and_messaging.DrawMenuBar(self.handle);
-            return;
-        }
-    }
-    _ = windows_and_messaging.SetMenu(self.handle, null);
-    _ = windows_and_messaging.DrawMenuBar(self.handle);
-}
-
 pub fn getCurrentTheme(self: *@This()) Win.Theme {
     return self.current_theme;
 }
@@ -780,119 +560,6 @@ pub fn getHCursor(cursor: Cursor) ?windows_and_messaging.HCURSOR {
         .icon => |i| windows_and_messaging.LoadCursorW(null, cursorToResource(i)),
         .custom => |c| c.handle,
     };
-}
-
-pub fn showSystemTray(self: *@This()) u32 {
-    if (self.system_tray) |tray| {
-        if (tray.popup) |popup| {
-            var pt: win32.foundation.POINT = undefined;
-            _ = windows_and_messaging.GetCursorPos(&pt);
-
-            _ = windows_and_messaging.SetForegroundWindow(self.handle);
-            const selected = windows_and_messaging.TrackPopupMenu(
-                popup,
-                .{ .RIGHTBUTTON = 1, .RETURNCMD = 1 },
-                pt.x,
-                pt.y,
-                0,
-                self.handle,
-                null,
-            );
-            _ = windows_and_messaging.PostMessageW(self.handle, windows_and_messaging.WM_NULL, 0, 0);
-            return @as(u32, @bitCast(selected));
-        }
-    }
-    return 0;
-}
-pub fn systemTrayOnClick(self: *const @This(), event_loop: *EventLoop, window: *@This()) void {
-    if (self.system_tray) |tray| {
-        if (tray.onclick) |onclick| {
-            onclick(event_loop, window);
-        }
-    }
-}
-
-const SystemTrayOnClick = *const fn (event_loop: *EventLoop, window: *@This()) void;
-pub fn setSystemTray(self: *@This(), tip: []const u8, onclick: ?SystemTrayOnClick, new_menu: ?[]const MenuItem) !void {
-    const allocator = self.arena.allocator();
-
-    if (new_menu) |new| {
-        if (self.system_tray) |*tray| {
-            allocator.free(tray.tip);
-            // TODO: Release other allocated resources
-
-            var nid = std.mem.zeroes(NOTIFYICONDATAW);
-            nid.cbSize = @sizeOf(NOTIFYICONDATAW);
-            nid.hWnd = self.handle;
-            nid.uID = ID_TRAY;
-            nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
-
-            const tip_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tip);
-            self.system_tray.?.tip = tip_w;
-
-            const tip_len = @min(tip_w.len, nid.szTip.len);
-            @memcpy(nid.szTip[0..tip_len], tip_w[0..tip_len]);
-            nid.szTip[tip_len] = 0;
-
-            _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
-        } else {
-            var nid = std.mem.zeroes(NOTIFYICONDATAW);
-            nid.cbSize = @sizeOf(NOTIFYICONDATAW);
-            nid.hWnd = self.handle;
-            nid.uID = ID_TRAY;
-            nid.uCallbackMessage = windows_and_messaging.WM_USER + 1;
-            nid.uFlags = .{ .MESSAGE = 1, .ICON = 1, .TIP = 1, .SHOWTIP = 1 };
-            nid.hIcon = getHIcon(self.icon);
-
-            const tip_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tip);
-            self.system_tray = .{ .tip = tip_w };
-
-            const tip_len = @min(tip_w.len, nid.szTip.len);
-            @memcpy(nid.szTip[0..tip_len], tip_w[0..tip_len]);
-            nid.szTip[tip_len] = 0;
-
-            _ = Shell_NotifyIconW(NIM_ADD, &nid);
-            nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
-            _ = Shell_NotifyIconW(NIM_SETVERSION, &nid);
-        }
-
-        self.system_tray.?.onclick = onclick;
-
-        for (self.systray_menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
-        for (self.item_to_systray.values()) |v| switch (v.payload) {
-            .toggle => |t| allocator.free(t.label),
-            .action => |a| allocator.free(a.label),
-            .radio => |r| allocator.free(r.label),
-        };
-        self.menus.clearAndFree(allocator);
-        self.item_to_menubar.clearAndFree(allocator);
-
-        var root_menu: ?HMENU = undefined;
-        if (new.len > 0) {
-            root_menu = windows_and_messaging.CreatePopupMenu().?;
-            self.system_tray.?.popup = root_menu;
-            try self.menus.append(allocator, root_menu.?);
-
-            var count: usize = 0;
-            var context = MenuContext{
-                .allocator = allocator,
-                .current = root_menu.?,
-                .menus = &self.systray_menus,
-                .itemToMenu = &self.item_to_systray,
-                .count = &count,
-            };
-
-            try context.appendMenu(new);
-        }
-    } else if (self.system_tray) |tray| {
-        allocator.free(tray.tip);
-
-        var nid = std.mem.zeroes(NOTIFYICONDATAW);
-        nid.cbSize = @sizeOf(NOTIFYICONDATAW);
-        nid.hWnd = self.handle;
-        nid.uID = ID_TRAY;
-        _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-    }
 }
 
 pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
@@ -919,7 +586,7 @@ pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
     }
 }
 
-fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
+pub fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
     return switch (icon) {
         .icon => |i| windows_and_messaging.LoadIconW(null, iconToResource(i)),
         .custom => |c| c,

@@ -1,9 +1,9 @@
 const std = @import("std");
-const core = @import("storytree-core");
+const zinit = @import("zinit");
 
-const EventLoop = core.event.EventLoop;
-const SizeEvent = core.event.SizeEvent;
-const Window = core.window.Window;
+const EventLoop = zinit.event.EventLoop;
+const SizeEvent = zinit.event.SizeEvent;
+const Window = zinit.window.Window;
 
 // used for adding platform specific state
 pub const Platform = switch (@import("builtin").target.os.tag) {

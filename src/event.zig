@@ -6,8 +6,6 @@ const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
-const MenuItem = @import("menu.zig").Item;
-const MenuInfo = @import("menu.zig").Info;
 
 pub const Modifiers = packed struct(u3) {
     ctrl: bool = false,
@@ -81,21 +79,14 @@ pub const MouseEvent = struct {
     state: ButtonState,
     /// What mouse button was pressed: left, right, middle, x1, or x2
     button: MouseButton,
+    /// Mouse Position
+    pos: Point(i32),
 };
 
 /// Event corresponding to a size
 pub const SizeEvent = struct {
     width: u32,
     height: u32,
-};
-
-pub const MenuEvent = struct {
-    id: u32,
-    item: *MenuInfo,
-
-    pub fn toggle(self: *const @This(), state: bool) void {
-        EventLoop.toggleMenuItem(self.id, self.item, state);
-    }
 };
 
 pub const WindowEvent = union(enum) {
@@ -110,26 +101,18 @@ pub const WindowEvent = union(enum) {
     /// Mouse button input event post
     mouse_input: MouseEvent,
     /// Mouse move event post
-    mouse_move: Point(u16),
+    mouse_move: Point(i32),
     /// Mouse move event post
     raw_input: Point(i32),
     /// Mouse scroll event post
     mouse_scroll: ScrollEvent,
     /// Change in window visibility
     visibility: Visibility,
-
-    /// Menu item event
-    menu: MenuEvent,
-    /// SysTray Menu item event
-    system_tray: MenuEvent,
-    /// Thumb bar item event
-    thumb: u32,
 };
 
 pub const ThemeEvent = enum { light, dark };
 pub const Event = union(enum) {
     theme: ThemeEvent,
-    user: u32,
     window: struct {
         target: *Window,
         event: WindowEvent,
@@ -139,7 +122,6 @@ pub const Event = union(enum) {
 pub const QueuedEvent = union(enum) {
     theme: ThemeEvent,
     destroy: usize,
-    user: u32,
     window: struct {
         target: usize,
         event: WindowEvent,
