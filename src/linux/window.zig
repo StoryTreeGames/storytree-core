@@ -14,7 +14,7 @@ const EventLoop = @import("../event.zig").EventLoop;
 const Event = @import("../event.zig").Event;
 const QueuedEvent = @import("../event.zig").QueuedEvent;
 const EventQueue = @import("../event.zig").EventQueue;
-const CursorType = @import("../cursor.zig").CursorType;
+const Symbol = @import("../cursor.zig").Symbol;
 
 const Rect = @import("../root.zig").Rect;
 
@@ -37,7 +37,7 @@ const Deco = struct {
 };
 
 const Cursor = union(enum) {
-    icon: CursorType,
+    icon: Symbol,
     custom: struct {
         // TODO: Store data for referencing the custom cursor
         //        probably a buffer

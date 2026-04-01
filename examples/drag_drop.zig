@@ -18,7 +18,7 @@ const DropData = drag_drop.DropData;
 pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
     switch (evt) {
         .close => event_loop.closeWindow(window.id()),
-        .key_input => |key_event| {
+        .key => |key_event| {
             std.debug.print("{any}\n", .{key_event.key});
         },
         else => {},

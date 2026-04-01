@@ -24,8 +24,8 @@ pub fn main() !void {
         .title = "Hello, world",
         .width = 800,
         .height = 600,
-        .icon = .{ .custom = "examples\\assets\\icon.ico" }, // Doesn't work yet in linux
-        .cursor = .{ .icon = .progress },
+        .icon = .custom("examples\\assets\\icon.ico"), // Doesn't work yet in linux
+        .cursor = .Progress,
     });
     window.show();
 
@@ -64,7 +64,7 @@ const State = struct {
             .resize => |resize| {
                 try self.platform.resize(self.allocator, event_loop, window, resize);
             },
-            .key_input => |key_event| {
+            .key => |key_event| {
                 if (key_event.matches('q', .{})) {
                     event_loop.closeWindow(window.id());
                 }

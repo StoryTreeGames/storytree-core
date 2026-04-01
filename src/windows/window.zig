@@ -2,16 +2,9 @@
 
 const std = @import("std");
 
-const Rect = @import("../root.zig").Rect;
-
-const dnd = @import("../drag_drop.zig");
-const dnd_win = @import("drag_drop.zig");
-
 const windows = @import("windows");
 const win32 = windows.win32;
-
 const UISettings = windows.UI.ViewManagement.UISettings;
-
 const ole = win32.system.ole;
 const foundation = win32.foundation;
 const windows_and_messaging = win32.ui.windows_and_messaging;
@@ -21,46 +14,67 @@ const gdi = win32.graphics.gdi;
 const zig = win32.zig;
 const shell = win32.ui.shell;
 const dwm = win32.graphics.dwm;
-
-const util = @import("util.zig");
-const cursorToResource = @import("cursor.zig").cursorToResource;
-const iconToResource = @import("icon.zig").iconToResource;
-
-const ico = @import("../icon.zig");
-const csr = @import("../cursor.zig");
-const IconType = ico.IconType;
-const CursorType = @import("../cursor.zig").CursorType;
-const Win = @import("../window.zig");
-const EventLoop = @import("../event.zig").EventLoop;
-
 const DestroyIcon = windows_and_messaging.DestroyIcon;
 const DestroyCursor = windows_and_messaging.DestroyCursor;
-
 const Shell_NotifyIconW = shell.Shell_NotifyIconW;
 const NIM_ADD = shell.NIM_ADD;
 const NIM_MODIFY = shell.NIM_MODIFY;
 const NIM_DELETE = shell.NIM_DELETE;
 const NIM_SETVERSION = shell.NIM_SETVERSION;
-
 const NOTIFYICONDATAW = shell.NOTIFYICONDATAW;
 const HICON = windows_and_messaging.HICON;
 const HCURSOR = windows_and_messaging.HCURSOR;
 const HWND = foundation.HWND;
 
+const csr = @import("../cursor.zig");
+const dnd = @import("../drag_drop.zig");
+const EventLoop = @import("../event.zig").EventLoop;
+const ico = @import("../icon.zig");
+const Rect = @import("../root.zig").Rect;
+const Win = @import("../window.zig");
+const cursorToResource = @import("cursor.zig").cursorToResource;
+const dnd_win = @import("drag_drop.zig");
+const iconToResource = @import("icon.zig").iconToResource;
+const util = @import("util.zig");
+
 const ID_TRAY = 1001;
 
 const Icon = union(enum) {
-    icon: IconType,
-    custom: HICON,
+    system: ?HICON,
+    resource: ?HICON,
+
+    pub fn hIcon(self: *const @This()) ?HICON {
+        return switch (self.*) {
+            .system => |h| h,
+            .resource => |h| h,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .resource => |h| _ = DestroyIcon(h),
+            else =>{}
+        }
+    }
 };
 
 const Cursor = union(enum) {
-    icon: CursorType,
-    custom: struct {
-        handle: HCURSOR,
-        width: i32,
-        height: i32,
-    },
+    system: ?HCURSOR,
+    resource: ?HCURSOR,
+
+    pub fn hCursor(self: *const @This()) ?HCURSOR {
+        return switch (self.*) {
+            .system => |h| h,
+            .resource => |h| h,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .resource => |h| _ = DestroyCursor(h),
+            else =>{}
+        }
+    }
 };
 
 arena: std.heap.ArenaAllocator,
@@ -71,9 +85,8 @@ class: [:0]const u16 = undefined,
 handle: foundation.HWND = undefined,
 instance: ?foundation.HINSTANCE = null,
 
-// TODO: Destroy the custom icon and cursor
-icon: Icon = .{ .icon = .default },
-cursor: Cursor = .{ .icon = .default },
+icon: Icon = .{ .system = null },
+cursor: Cursor = .{ .system = null },
 
 theme: Win.Theme = .system,
 current_theme: Win.Theme = .dark,
@@ -190,8 +203,6 @@ pub fn init(
     });
     _ = gdi.UpdateWindow(win.handle);
 
-    win.icon = .{ .icon = .default };
-    win.cursor = .{ .icon = .default };
     win.theme = options.theme;
 
     try win.setCursor(options.cursor);
@@ -213,15 +224,8 @@ pub fn deinit(self: *@This()) void {
         h.deinit();
     }
 
-    // Destroy allocated icon handle
-    if (self.icon == .custom) {
-        _ = DestroyIcon(self.icon.custom);
-    }
-
-    // Destroy allocated cursor handle
-    if (self.cursor == .custom) {
-        _ = DestroyCursor(self.cursor.custom.handle);
-    }
+    self.icon.deinit();
+    self.cursor.deinit();
 
     // Unregister the class
     _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
@@ -337,21 +341,17 @@ pub fn setTitle(self: *@This(), title: []const u8) !void {
 pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
     const allocator = self.arena.allocator();
 
-    // Free old icon memory
-    switch (self.icon) {
-        .custom => |handle| _ = DestroyIcon(handle),
-        else => {},
-    }
+    self.icon.deinit();
 
     // Assign new icon value/memory
     switch (new_icon) {
-        .icon => |i| self.icon = .{ .icon = i },
-        .custom => |c| {
+        .symbol => |i| self.icon = .{ .system = windows_and_messaging.LoadIconW(null, iconToResource(i)) },
+        .resource => |c| {
             const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c);
             defer allocator.free(path);
 
             self.icon = .{
-                .custom = @ptrCast(windows_and_messaging.LoadImageW(
+                .resource = @ptrCast(windows_and_messaging.LoadImageW(
                     null,
                     path.ptr,
                     windows_and_messaging.IMAGE_ICON,
@@ -368,20 +368,18 @@ pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
         },
     }
 
-    const hIcon = getHIcon(self.icon);
-
     // Send message to window to now render new icon
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_SMALL,
-        @intCast(@as(usize, @intFromPtr(hIcon))),
+        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
     );
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_BIG,
-        @intCast(@as(usize, @intFromPtr(hIcon))),
+        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
     );
 }
 
@@ -389,37 +387,29 @@ pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
 pub fn setCursor(self: *@This(), new_cursor: csr.Cursor) !void {
     const allocator = self.arena.allocator();
 
-    // Free old cursor memory
-    switch (self.cursor) {
-        .custom => |c| _ = DestroyCursor(c.handle),
-        else => {},
-    }
+    self.cursor.deinit();
 
     // Assign new cursor value/memory
     switch (new_cursor) {
-        .icon => |i| self.cursor = .{ .icon = i },
-        .custom => |c| {
+        .symbol => |i| self.cursor = .{ .system = windows_and_messaging.LoadCursorW(null, cursorToResource(i)) },
+        .resource => |c| {
             const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
             defer allocator.free(path);
 
             self.cursor = .{
-                .custom = .{
-                    .width = c.width,
-                    .height = c.height,
-                    .handle = @ptrCast(windows_and_messaging.LoadImageW(
-                        null,
-                        path.ptr,
-                        windows_and_messaging.IMAGE_ICON,
-                        c.width,
-                        c.height,
-                        windows_and_messaging.IMAGE_FLAGS{
-                            .DEFAULTSIZE = 1,
-                            .LOADFROMFILE = 1,
-                            .SHARED = 1,
-                            .LOADTRANSPARENT = 1,
-                        },
-                    )),
-                },
+                .resource = @ptrCast(windows_and_messaging.LoadImageW(
+                    null,
+                    path.ptr,
+                    windows_and_messaging.IMAGE_ICON,
+                    c.width,
+                    c.height,
+                    windows_and_messaging.IMAGE_FLAGS{
+                        .DEFAULTSIZE = 1,
+                        .LOADFROMFILE = 1,
+                        .SHARED = 1,
+                        .LOADTRANSPARENT = 1,
+                    },
+                )),
             };
         },
     }
@@ -430,7 +420,7 @@ pub fn setCursor(self: *@This(), new_cursor: csr.Cursor) !void {
     if (currHandle) |hwnd| {
         if (hwnd == self.handle) {
             // Get HCURSOR pointer from icon
-            _ = windows_and_messaging.SetCursor(getHCursor(self.cursor));
+            _ = windows_and_messaging.SetCursor(self.cursor.hCursor());
         }
     }
 }
@@ -555,13 +545,6 @@ pub fn getTheme(self: *@This()) Win.Theme {
     return self.theme;
 }
 
-pub fn getHCursor(cursor: Cursor) ?windows_and_messaging.HCURSOR {
-    return switch (cursor) {
-        .icon => |i| windows_and_messaging.LoadCursorW(null, cursorToResource(i)),
-        .custom => |c| c.handle,
-    };
-}
-
 pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
     const allocator = self.arena.allocator();
 
@@ -584,13 +567,6 @@ pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
         hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
         if (hr != 0) try windows.core.hresultToError(hr);
     }
-}
-
-pub fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
-    return switch (icon) {
-        .icon => |i| windows_and_messaging.LoadIconW(null, iconToResource(i)),
-        .custom => |c| c,
-    };
 }
 
 fn showWindow(hwnd: ?foundation.HWND, state: Win.Visibility) void {

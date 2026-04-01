@@ -23,7 +23,7 @@ const State = struct {
     pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
             .close => event_loop.closeWindow(window.id()),
-            .key_input => |key_event| {
+            .key => |key_event| {
                 std.debug.print("{any}\n", .{key_event.key});
                 if (key_event.matches(.f11, .{})) {
                     if (self.fullscreen) window.restore() else try window.fullscreen();
@@ -172,7 +172,7 @@ pub fn main() !void {
         .title = title,
         .width = 800,
         .height = 600,
-        .icon = .{ .custom = "assets\\icon.ico" },
+        .icon = .custom("assets\\icon.ico"),
     });
 
     while (event_loop.isActive()) {

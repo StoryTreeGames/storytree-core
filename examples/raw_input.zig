@@ -14,7 +14,7 @@ const State = struct {
     pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
             .close => event_loop.closeWindow(window.id()),
-            .raw_input => |raw| {
+            .raw => |raw| {
                 std.debug.print("raw input: dx={{{d}}} dy={{{d}}}\n", .{ raw.x, raw.y });
             },
             else => {},

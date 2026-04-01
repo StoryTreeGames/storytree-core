@@ -3,13 +3,13 @@ const win32 = @import("windows").win32;
 const wam = win32.ui.windows_and_messaging;
 const kam = win32.ui.input.keyboard_and_mouse;
 const zig = win32.zig;
-const CursorType = @import("../cursor.zig").CursorType;
+const Symbol = @import("../cursor.zig").Symbol;
 const Rect = @import("../root.zig").Rect;
 const Point = @import("../root.zig").Point;
 const util = @import("util.zig");
 const input = @import("../input.zig");
 
-pub fn cursorToResource(cursor: CursorType) [*:0]align(1) const u16 {
+pub fn cursorToResource(cursor: Symbol) [*:0]align(1) const u16 {
     return switch (cursor) {
         .default => wam.IDC_ARROW,
         .pointer => wam.IDC_HAND,

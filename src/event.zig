@@ -97,31 +97,57 @@ pub const WindowEvent = union(enum) {
     /// Focus or Unfocus event post
     focused: bool,
     /// Key input event post
-    key_input: KeyEvent,
+    key: KeyEvent,
     /// Mouse button input event post
-    mouse_input: MouseEvent,
+    mouse: MouseEvent,
     /// Mouse move event post
-    mouse_move: Point(i32),
+    move: Point(i32),
     /// Mouse move event post
-    raw_input: Point(i32),
+    raw: Point(i32),
     /// Mouse scroll event post
-    mouse_scroll: ScrollEvent,
+    scroll: ScrollEvent,
     /// Change in window visibility
     visibility: Visibility,
+    /// Menu item selected
+    menu: MenuEvent,
+};
+
+pub const MenuEvent = struct {
+    kind: Kind,
+    target: u32,
+
+    pub const Kind = enum { window, taskbar };
 };
 
 pub const ThemeEvent = enum { light, dark };
+pub const UserEvent = struct {
+    id: u32,
+    payload: u32,
+
+    pub fn into(self: @This(), comptime T: type) T {
+        return switch (@typeInfo(T)) {
+            .@"enum" => @enumFromInt(self.payload),
+            .int => |i| switch (i.signedness) {
+                .signed => @intCast(@as(i32, @bitCast(self.payload))),
+                .unsigned => @intCast(self.payload)
+            },
+            else => @compileError("unsupported payload type")
+        };
+    }
+};
 pub const Event = union(enum) {
     theme: ThemeEvent,
     window: struct {
         target: *Window,
         event: WindowEvent,
     },
+    user: UserEvent
 };
 
 pub const QueuedEvent = union(enum) {
     theme: ThemeEvent,
     destroy: usize,
+    user: UserEvent,
     window: struct {
         target: usize,
         event: WindowEvent,

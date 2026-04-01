@@ -22,8 +22,9 @@ Hopefully this library will remain generic enough to be able to be used with mos
 
 - [x] Move Dialog module to individual repo
 - [x] Move Notification module to individual repo
-- [ ] Move System Tray module to individual repo
-- [ ] Move Window Menu module to individual repo
+- [x] Move System Tray module to individual repo
+- [x] Move Window Menu module to individual repo
+- [x] Move Windows Taskbar/Toolbar to individual repo
 
 - [-] Windows
   - [x] Basic window creation
@@ -47,7 +48,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Set Cursor Pos
     - [x] Change Window Theme
     - [x] Set Cursor Capture
-    - [x] Set and Update Menu
     - [x] Fullscreen
   - [-] Event listening and handling
     - [x] Close 
@@ -57,7 +57,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
       - [x] Normal mouse input
       - [x] Raw Mouse Input
     - [x] Resize
-    - [x] Menu
     - [ ] Repaint
     - [x] Theme Change
     - [x] Drag Drop
@@ -66,8 +65,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Keys
     - [x] Mouse
     - [ ] Gamepad
-  - [x] System Tray
-  - [x] Menu
   - [x] Set App ID
   - [-] Platform Specific
     - [x] Taskbar
@@ -98,7 +95,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Set Cursor Pos
     - [ ] Change Window Theme
     - [ ] Set Cursor Capture
-    - [ ] Set and Update Menu
     - [x] Fullscreen
   - [ ] Event listening and handling
     - [x] Close 
@@ -107,7 +103,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
       - [x] Normal mouse input
       - [ ] Raw Mouse Input
     - [x] Resize
-    - [ ] Menu 
     - [ ] Repaint
     - [ ] Theme Change
     - [ ] Drag Drop
@@ -116,10 +111,8 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad
-  - [ ] System Tray
   - [-] Title Bar
   - [ ] Set App ID
-  - [ ] Menu
   - [ ] Platform Specific
 
 - [ ] MacOS
@@ -143,14 +136,12 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Set Cursor Pos
     - [ ] Change Window Theme
     - [ ] Set Cursor Capture
-    - [ ] Set and Update Menu
     - [ ] Fullscreen
   - [ ] Event listening and handling
     - [ ] Close 
     - [ ] Keyboard
     - [ ] Mouse
     - [ ] Resize
-    - [ ] Menu 
     - [ ] Repaint
     - [ ] Theme Change
     - [ ] Drag Drop
@@ -158,10 +149,8 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Keys
     - [ ] Mouse
     - [ ] Gamepad, controller, joystick, etc.
-  - [ ] System Tray
   - [ ] Title Bar
   - [ ] Set App ID
-  - [ ] Menu
 
 ## Notes
 

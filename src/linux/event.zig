@@ -75,6 +75,13 @@ pub fn createWindow(self: *@This(), opts: WindowOptions) !*Window {
     return win;
 }
 
+pub fn closeAll(self: *@This()) void {
+    if (self.windows.values()) |win| {
+        win.deinit();
+    }
+    self.windows.clearAndFree(self.arena.allocator());
+}
+
 pub fn closeWindow(self: *@This(), id: usize) void {
     if (self.windows.get(id)) |win| {
         win.deinit();
@@ -147,6 +154,21 @@ pub fn poll(self: *@This()) !void {
     } else {
         self.display.cancelRead();
     }
+}
+
+pub fn push(self: *@This(), id: u32, comptime payload: anytype) !void {
+    try self.queue.append(.{ .user = .{
+        .id = id,
+        .payload = switch (@typeInfo(@TypeOf(payload))) {
+            .@"enum" => @intFromEnum(payload),
+            .comptime_int => payload,
+            .int => |i| switch (i.signedness) {
+                .signed => @bitCast(@as(i32, @intCast(payload))),
+                .unsigned => @intCast(payload)
+            },
+            else => @compileError("unsupported payload type"),
+        }
+    }});
 }
 
 pub fn pop(self: *@This()) ?Event {
