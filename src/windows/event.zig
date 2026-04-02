@@ -254,6 +254,11 @@ pub fn pop(self: *@This()) ?Event {
     return null;
 }
 
+/// Clear all queued events
+pub fn clear(self: *@This()) void {
+    self.queue.clear();
+}
+
 pub fn handleEvent(self: *@This(), args: std.meta.Tuple(&.{ HWND, u32, usize, isize })) bool {
     const winId = @intFromPtr(args[0]);
     if (self.windows.get(winId)) |win| {
@@ -300,48 +305,6 @@ pub fn wait(_: *@This()) !void {
     }
 }
 
-fn getKeyboardState(keyboard: *[256]u8) void {
-    _ = keyboard_and_mouse.GetKeyboardState(keyboard);
-}
-
-fn anyKeySet(keyboard: *const [256]u8, keys: []const VIRTUAL_KEY) bool {
-    for (keys) |key| {
-        if (key == keyboard_and_mouse.VK_CAPITAL or key == keyboard_and_mouse.VK_NUMLOCK) {
-            if (keyboard[@intFromEnum(key)] & 1 == 1) return true;
-        } else if (keyboard[@intFromEnum(key)] & PRESSED == PRESSED) return true;
-    }
-    return false;
-}
-
-fn getModifiers(keyboard: *const [256]u8) Modifiers {
-    var modifiers: Modifiers = .{};
-    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_CONTROL, VK_LCONTROL, VK_RCONTROL })) {
-        modifiers.ctrl = true;
-    }
-    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_ALT, VK_LALT, VK_RALT })) {
-        modifiers.alt = true;
-    }
-    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_SHIFT, VK_LSHIFT, VK_RSHIFT })) {
-        modifiers.shift = true;
-    }
-
-    return modifiers;
-}
-
-/// Disables raw mouse input for the window that currently has the raw mouse input focus
-pub fn disableRawMouseInput(self: *@This()) void {
-    var device = [1]RAWINPUTDEVICE{.{
-        .usUsagePage = HID_USAGE_PAGE_GENERIC,
-        .usUsage = HID_USAGE_GENERIC_MOUSE,
-        .dwFlags = RIDEV_REMOVE,
-        .hwndTarget = null,
-    }};
-
-    if (RegisterRawInputDevices((&device).ptr, 1, @sizeOf(RAWINPUTDEVICE)) == 0) {
-        self.raw_input = false;
-    }
-}
-
 /// Enable raw mouse delta's without any acceleration, normalization, etc.
 ///
 /// This is the raw phyical device input from the system and should be processed furthure
@@ -376,6 +339,48 @@ pub fn enableRawMouseInput(self: *@This(), window_id: usize, capture_unfocused: 
 
         self.raw_input = true;
     }
+}
+
+/// Disables raw mouse input for the window that currently has the raw mouse input focus
+pub fn disableRawMouseInput(self: *@This()) void {
+    var device = [1]RAWINPUTDEVICE{.{
+        .usUsagePage = HID_USAGE_PAGE_GENERIC,
+        .usUsage = HID_USAGE_GENERIC_MOUSE,
+        .dwFlags = RIDEV_REMOVE,
+        .hwndTarget = null,
+    }};
+
+    if (RegisterRawInputDevices((&device).ptr, 1, @sizeOf(RAWINPUTDEVICE)) == 0) {
+        self.raw_input = false;
+    }
+}
+
+fn getKeyboardState(keyboard: *[256]u8) void {
+    _ = keyboard_and_mouse.GetKeyboardState(keyboard);
+}
+
+fn anyKeySet(keyboard: *const [256]u8, keys: []const VIRTUAL_KEY) bool {
+    for (keys) |key| {
+        if (key == keyboard_and_mouse.VK_CAPITAL or key == keyboard_and_mouse.VK_NUMLOCK) {
+            if (keyboard[@intFromEnum(key)] & 1 == 1) return true;
+        } else if (keyboard[@intFromEnum(key)] & PRESSED == PRESSED) return true;
+    }
+    return false;
+}
+
+fn getModifiers(keyboard: *const [256]u8) Modifiers {
+    var modifiers: Modifiers = .{};
+    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_CONTROL, VK_LCONTROL, VK_RCONTROL })) {
+        modifiers.ctrl = true;
+    }
+    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_ALT, VK_LALT, VK_RALT })) {
+        modifiers.alt = true;
+    }
+    if (anyKeySet(keyboard, &[3]VIRTUAL_KEY{ VK_SHIFT, VK_LSHIFT, VK_RSHIFT })) {
+        modifiers.shift = true;
+    }
+
+    return modifiers;
 }
 
 const EventArgs = std.meta.Tuple(&.{ foundation.HWND, u32, usize, isize });
@@ -533,16 +538,19 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
 
                 const modifiers: Modifiers = getModifiers(&keyboard);
 
-                try queue.append(.{ .window = .{
-                    .target = @intFromPtr(args[0]),
-                    .event = .{
-                        .key = .{
-                            .key = .{ .virtual = key },
-                            .modifiers = modifiers,
-                            .state = .pressed,
+                try queue.append(.{
+                    .window = .{
+                        .target = @intFromPtr(args[0]),
+                        .event = .{
+                            .key = .{
+                                .key = .{ .virtual = key },
+                                .modifiers = modifiers,
+                                .state = .pressed,
+                            },
                         },
                     },
-                } });
+                });
+
                 return true;
             }
             // return windows_and_messaging.DefWindowProcW(hwnd, uMsg, wparam, lparam);

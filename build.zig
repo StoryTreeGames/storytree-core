@@ -6,11 +6,10 @@ const NAME = "zinit";
 const EXAMPLES = "examples";
 
 const examples = [_]Example{
-    .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
-    // .{ .name = "wgpu", .path = EXAMPLES ++ "/wgpu/main.zig" },
-    .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
+    .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
+    .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
 };
 
 pub fn build(b: *std.Build) !void {
@@ -27,13 +26,9 @@ pub fn build(b: *std.Build) !void {
     defer deps.deinit(b.allocator);
 
     const uuid = b.dependency("uuid", .{});
-    const wgpu_native = b.dependency("wgpu_native_zig", .{});
-    const dialog = b.dependency("dialog", .{});
 
     try deps.append(b.allocator, .{ .name = NAME, .module = module });
     try deps.append(b.allocator, .{ .name = "uuid", .module = uuid.module("uuid") });
-    try deps.append(b.allocator, .{ .name = "wgpu", .module = wgpu_native.module("wgpu") });
-    try deps.append(b.allocator, .{ .name = "dialog", .module = dialog.module("dialog") });
 
     var assets_dir = b.addInstallDirectory(.{
         .source_dir = b.path("examples/assets"),

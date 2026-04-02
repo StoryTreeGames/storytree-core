@@ -89,6 +89,18 @@ pub fn closeWindow(self: *@This(), id: usize) void {
     }
 }
 
+pub fn enableRawMouseInput(self: *@This(), window_id: usize, capture_unfocused: bool) !void {
+    _ = self;
+    _ = window_id;
+    _ = capture_unfocused;
+    @panic("TODO: Unimplemented");
+}
+
+pub fn disableRawMouseInput(self: *@This()) void {
+    _ = self;
+    @panic("TODO: Unimplemented");
+}
+
 pub fn exit(self: *@This()) void {
     self.is_exit = true;
 }
@@ -169,6 +181,10 @@ pub fn push(self: *@This(), id: u32, comptime payload: anytype) !void {
             else => @compileError("unsupported payload type"),
         }
     }});
+}
+
+pub fn clear(self: *@This()) void {
+    self.queue.clear();
 }
 
 pub fn pop(self: *@This()) ?Event {

@@ -15,13 +15,34 @@ const DragKeyState = drag_drop.DragKeyState;
 const DropEffect = drag_drop.DropEffect;
 const DropData = drag_drop.DropData;
 
-pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
-    switch (evt) {
-        .close => event_loop.closeWindow(window.id()),
-        .key => |key_event| {
-            std.debug.print("{any}\n", .{key_event.key});
-        },
-        else => {},
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var event_loop = try EventLoop.init(allocator);
+    defer event_loop.deinit();
+
+    const window = try event_loop.createWindow(.{
+        .title = "Drag & Drop",
+        .width = 800,
+        .height = 600,
+    });
+    try window.setDragDrop(.{
+        .enter = onDrag,
+        .over = onDrag,
+        .drop = onDrop,
+    });
+
+    while (event_loop.isActive()) {
+        // Collect all events currently in OS event buffer
+        try event_loop.wait();
+        // Remove the first event from the collected event buffer
+        while (event_loop.pop()) |e| {
+            if (e == .window) {
+                try handleEvent(event_loop, e.window.target, e.window.event);
+            }
+        }
     }
 }
 
@@ -86,33 +107,12 @@ fn onDrop(state: ?*anyopaque, point: zinit.Point(u32), key_state: DragKeyState, 
     return .copy;
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var event_loop = try EventLoop.init(allocator);
-    defer event_loop.deinit();
-
-    const window = try event_loop.createWindow(.{
-        .title = "Drag & Drop",
-        .width = 800,
-        .height = 600,
-    });
-    try window.setDragDrop(.{
-        .enter = onDrag,
-        .over = onDrag,
-        .drop = onDrop,
-    });
-
-    while (event_loop.isActive()) {
-        // Collect all events currently in OS event buffer
-        try event_loop.wait();
-        // Remove the first event from the collected event buffer
-        while (event_loop.pop()) |e| {
-            if (e == .window) {
-                try handleEvent(event_loop, e.window.target, e.window.event);
-            }
-        }
+pub fn handleEvent(event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
+    switch (evt) {
+        .close => event_loop.closeWindow(window.id()),
+        .key => |key_event| {
+            std.debug.print("{any}\n", .{key_event.key});
+        },
+        else => {},
     }
 }

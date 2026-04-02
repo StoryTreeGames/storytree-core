@@ -1,16 +1,12 @@
 .{
-    .name = .storytree_core,
+    .name = .zinit,
     .version = "0.0.0",
     .minimum_zig_version = "0.15.1",
-    .fingerprint = 0xf92bb48417113673,
+    .fingerprint = 0x9270341b276fba4a,
     .dependencies = .{
         .uuid = .{
             .url = "git+https://github.com/r4gus/uuid-zig#93f35b4abbef52db7b48fd20084e73d3c6e20ee0",
             .hash = "uuid-0.4.0-oOieIR2AAAChAUVBY4ABjYI1XN0EbVALmiN0JIlggC3i",
-        },
-        .wgpu_native_zig = .{
-            .url = "git+https://github.com/bronter/wgpu_native_zig#ed408d55240160b6fea9a51e317dc40851b48102",
-            .hash = "wgpu_native_zig-6.5.0-B9jeDFtzAwB1vPOiXTd2BqrP1j4phYk-oBbxbpLKY3xD",
         },
         .wayland = .{
             .url = "git+https://github.com/ifreund/zig-wayland#1b5c038ec10da20ed3a15b0b2a6db1c21383e8ea",
@@ -19,10 +15,6 @@
         .windows = .{
             .url = "git+https://github.com/Tired-Fox/windows-zig#36dfc4c9292bf5ad1cca8614f9c76482d7c41427",
             .hash = "windows-0.0.2-kXMVSkjSSgIXhzB6csFPSn4ekcuUdgG5YMJDWiY5OLhp",
-        },
-        .dialog = .{
-            .url = "git+https://github.com/StoryTreeGames/dialog#f1d5ff2cbab5a16b279dc47cb5745f77b39b1be3",
-            .hash = "dialog-0.0.0-lBg-s8VvAACF51cVo_WlOI415J1PlEgGENmVxnV6r2ZF",
         },
     },
     .paths = .{

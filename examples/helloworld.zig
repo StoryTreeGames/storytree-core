@@ -31,6 +31,7 @@ pub fn main() !void {
 
     while (event_loop.isActive()) {
         try event_loop.wait();
+
         while (event_loop.pop()) |evt| {
             switch (evt) {
                 .window => |we| {

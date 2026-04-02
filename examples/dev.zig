@@ -12,7 +12,6 @@ const WindowEvent = event.WindowEvent;
 
 const State = struct {
     allocator: std.mem.Allocator,
-    icons: []const []const u8,
     cursor: zinit.cursor.Cursor = .Default,
     pos: enum { tl, tr, bl, br } = .tl,
     fullscreen: bool = false,
@@ -36,9 +35,9 @@ const State = struct {
                 }
 
                 if (key_event.matches(.tab, .{ .shift = false })) {
-                    self.cursor = .{ .icon = @enumFromInt(@as(u8, (@intFromEnum(self.cursor.icon)) +| 1) % 33) };
+                    self.cursor = .{ .symbol = @enumFromInt(@as(u8, (@intFromEnum(self.cursor.symbol)) +| 1) % 33) };
 
-                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.icon)});
+                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.symbol)});
                     defer self.allocator.free(title);
                     try window.setTitle(title);
 
@@ -46,13 +45,13 @@ const State = struct {
                 }
 
                 if (key_event.matches(.tab, .{ .shift = true })) {
-                    var new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(self.cursor.icon))))) - 1;
+                    var new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(self.cursor.symbol))))) - 1;
                     if (new_cursor < 0) {
-                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(zinit.cursor.CursorType.zoom_in))))) + new_cursor + 1;
+                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(zinit.cursor.Symbol.zoom_in))))) + new_cursor + 1;
                     }
-                    self.cursor = .{ .icon = @enumFromInt(new_cursor) };
+                    self.cursor = .{ .symbol = @enumFromInt(new_cursor) };
 
-                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.icon)});
+                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.symbol)});
                     defer self.allocator.free(title);
                     try window.setTitle(title);
                     try window.setCursor(self.cursor);
@@ -144,29 +143,9 @@ pub fn main() !void {
         \\
     , .{});
 
-    // const prev_icon = try common.relativeFile(allocator, "assets/skip-previous.ico");
-    // const play_icon = try common.relativeFile(allocator, "assets/play.ico");
-    // const pause_icon = try common.relativeFile(allocator, "assets/pause.ico");
-    // const next_icon = try common.relativeFile(allocator, "assets/skip-next.ico");
-    //
-    // defer allocator.free(prev_icon);
-    // defer allocator.free(play_icon);
-    // defer allocator.free(pause_icon);
-    // defer allocator.free(next_icon);
+    var state: State = .{ .allocator = allocator };
 
-    const prev_icon = "assets/skip-previous.ico";
-    const play_icon = "assets/play.ico";
-    const pause_icon = "assets/pause.ico";
-    const next_icon = "assets/skip-next.ico";
-
-    var state: State = .{ .icons = &.{
-        prev_icon,
-        play_icon,
-        pause_icon,
-        next_icon,
-    }, .allocator = allocator };
-
-    const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.icon)});
+    const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
     defer allocator.free(title);
     _ = try event_loop.createWindow(.{
         .title = title,
@@ -178,6 +157,7 @@ pub fn main() !void {
     while (event_loop.isActive()) {
         try event_loop.wait();
         while (event_loop.pop()) |e| {
+            std.debug.print("{any}\n", .{e});
             if (e == .window) {
                 try state.handleEvent(event_loop, e.window.target, e.window.event);
             }

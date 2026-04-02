@@ -209,6 +209,22 @@ pub fn LinkedQueue(comptime T: type) type {
             self.count += 1;
         }
 
+        /// Clear all items in the queue freeing the memeory
+        /// and resetting the queue to 0 items.
+        pub fn clear(self: *Self) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            var next = self.head;
+            self.head = null;
+            self.count = 0;
+
+            while (next) |n| {
+                next = n.next;
+                self.allocator.destroy(n);
+            }
+        }
+
         /// Dequeue one value if available; returns null when empty.
         pub fn pop(self: *Self) ?T {
             self.mutex.lock();

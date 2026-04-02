@@ -1,12 +1,19 @@
+/// This is a way for the user of the library to have a drawn window
+///
+/// This library doesn't handle drawing and linux requires there to
+/// be a buffer that is painted for there to be a rendered window. This
+/// library still handles events and manages the window, the rendering
+/// is just handled by the consumer of the library.
+
 const std = @import("std");
 
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 
-const core = @import("storytree-core");
-const EventLoop = core.event.EventLoop;
+const zinit = @import("zinit");
+const EventLoop = zinit.event.EventLoop;
 
-const Resize = core.event.SizeEvent;
+const Resize = zinit.event.SizeEvent;
 
 fd: std.posix.fd_t,
 data: []u32,

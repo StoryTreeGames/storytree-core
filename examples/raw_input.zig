@@ -32,13 +32,6 @@ pub fn main() !void {
 
     try event_loop.setAppId("com.storytree.core");
 
-    // Custom debug output of window
-    std.debug.print(
-        \\When minimized taskbar status turns red (error):
-        \\  - When opened, a modal pops up with a funny message
-        \\
-    , .{});
-
     const win = try event_loop.createWindow(.{
         .title = "Please Don't Minimize Me :'(",
         .width = 800,
