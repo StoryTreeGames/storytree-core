@@ -4,11 +4,11 @@ const Rect = @import("root.zig").Rect;
 const Icon = @import("icon.zig").Icon;
 const Cursor = @import("cursor.zig").Cursor;
 const EventLoop = @import("event.zig").EventLoop;
-const MenuItem = @import("menu.zig").Item;
+const DropTarget = @import("drag_drop.zig").DropTarget;
 
-pub const Inner = switch (@import("builtin").os.tag) {
+pub const Impl = switch (@import("builtin").os.tag) {
     .windows => @import("windows/window.zig"),
-    else => @compileError("platform not supported")
+    else => @compileError("platform not supported"),
 };
 
 pub const Theme = enum {
@@ -24,107 +24,155 @@ pub const Theme = enum {
     }
 };
 
-pub const Show = enum { maximize, minimize, restore, fullscreen };
+/// Collection of usefull handles that are usually needed
+/// for rendering libraries like WGPU, Vulkan, Metal, etc.
+pub const Handles = struct {
+    /// - Windows: HINSTANCE
+    /// - Linux: Display
+    parent: *anyopaque,
+    /// - Windows: HWND
+    /// - Linux: Surface
+    target: *anyopaque,
+};
+
+pub const Visibility = enum { maximize, minimize, restore, fullscreen, hidden };
 
 pub const Options = struct {
     title: []const u8 = "",
-    x: ?u32 = null,
-    y: ?u32 = null,
     width: ?u32 = null,
     height: ?u32 = null,
-    icon: Icon = .Default,
+    show: Visibility = .restore,
+
     cursor: Cursor = .Default,
-    resizable: bool = true,
+
+    // Linux does not have reactive theme, this will be added at a later date with DBus support.
     theme: Theme = .system,
-    show: Show = .restore,
+
+    /// Has no affect on linux.
+    ///
+    /// Linux implementation will be done at a later date.
+    icon: Icon = .Default,
+
+    // Has no affect on linux
+    x: ?u32 = null,
+    y: ?u32 = null,
+    resizable: bool = true,
 };
 
-arena: std.heap.ArenaAllocator,
-
-inner: *Inner,
-alive: bool,
-
-pub fn init(allocator: std.mem.Allocator, options: Options, event_loop: *EventLoop) !@This() {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-
-    return .{
-        .inner = try Inner.init(arena.allocator(), options, event_loop),
-        .alive = true,
-        .arena = arena,
-    };
-}
-
-pub fn deinit(self: *@This()) void {
-    self.inner.destroy();
-    self.arena.deinit();
-}
+pub const Window = switch (@import("builtin").target.os.tag) {
+    .windows => @import("windows/window.zig"),
+    .linux => @import("linux/window.zig"),
+    else => @compileError("unsupported platform"),
+};
 
 pub fn id(self: *const @This()) usize {
-    return self.inner.id();
+    return self.impl.id();
+}
+
+/// Returns the pointers to the parent and
+/// the target
+///
+/// # Parent
+/// - Windows: HINSTANCE
+/// - Linux: Display
+///
+/// # Target
+/// - Windows: HWND
+/// - Linux: Surface
+pub fn handles(self: *const @This()) Handles {
+    return self.impl.handles();
+}
+
+pub fn visibility(self: *const @This()) Visibility {
+    return self.impl.visibility();
+}
+
+/// Show the window
+pub fn show(self: *const @This()) void {
+    self.impl.show();
+}
+
+/// Hide the window
+pub fn hide(self: *const @This()) void {
+    self.impl.hide();
 }
 
 /// Minimize the window
 pub fn minimize(self: *const @This()) void {
-    self.inner.minimize();
+    self.impl.minimize();
 }
 
 /// Maximize the window
 pub fn maximize(self: *const @This()) void {
-    self.inner.maximize();
+    self.impl.maximize();
 }
 
 /// Restore the window to its default windowed state
 pub fn restore(self: *const @This()) void {
-    self.inner.restore();
-}
-
-/// Get the windows current rect (bounding box)
-pub fn getRect(self: *const @This()) Rect(u32) {
-    return self.inner.getRect();
+    self.impl.restore();
 }
 
 /// Get the windows configured theme
 pub fn getTheme(self: *@This()) Theme {
-    return self.inner.getTheme();
+    return self.impl.getTheme();
 }
 
 /// Get the windows current theme
 pub fn getCurrentTheme(self: *@This()) Theme {
-    return self.inner.getCurrentTheme();
+    return self.impl.getCurrentTheme();
+}
+
+/// Set or Unset the current window to be full screen.
+///
+/// + **true**: It will take up the entire screen of the current monitor where
+///   the window is located if it is fullscreen.
+/// + **false**: The window's styles, size, and position are restored and if
+///   the window was maximized before fullscreen, it will go back to being
+///   maximized.
+pub fn setFullScreen(self: *@This(), state: bool) void {
+    try self.impl.setFullScreen(state);
 }
 
 /// Set window title
 pub fn setTitle(self: *@This(), title: []const u8) !void {
-    try self.inner.setTitle(self.arena.allocator(), title);
+    try self.impl.setTitle(self.arena.allocator(), title);
 }
 
 /// Set window icon
 pub fn setIcon(self: *@This(), new_icon: Icon) !void {
-    try self.inner.setIcon(self.arena.allocator(), new_icon);
+    try self.impl.setIcon(self.arena.allocator(), new_icon);
 }
 
 /// Set window cursor
 pub fn setCursor(self: *@This(), new_cursor: Cursor) !void {
-    try self.inner.setCursor(self.arena.allocator(), new_cursor);
+    try self.impl.setCursor(self.arena.allocator(), new_cursor);
 }
 
 /// Set the cursors position relative to the window
 pub fn setCursorPos(self: *@This(), x: u32, y: u32) void {
-    self.inner.setCursorPos(@intCast(x), @intCast(y));
+    self.impl.setCursorPos(@intCast(x), @intCast(y));
+}
+
+/// Get whether the mouse is captured by the current window
+pub fn getCapture(self: *@This()) bool {
+    self.impl.getCapture();
+}
+
+/// Get the current area that is used for rendering
+pub fn getClientRect(self: *@This()) Rect(u32) {
+    return self.impl.getClientRect();
 }
 
 /// Set the mouse to be captured by the window, or release it from the window
 pub fn setCapture(self: *@This(), state: bool) void {
-    self.inner.setCapture(state);
-}
-
-/// Set or replace the window's menu bar
-pub fn setMenu(self: *@This(), menu: ?[]const MenuItem) !void {
-    try self.inner.setMenu(self.arena.allocator(), menu);
+    self.impl.setCapture(state);
 }
 
 /// Set the window's configured theme
 pub fn setTheme(self: *@This(), theme: Theme) void {
-    self.inner.setTheme(theme);
+    self.impl.setTheme(theme);
+}
+
+pub fn setDragDrop(self: *@This(), context: DropTarget.Context) !void {
+    try self.impl.setDragDrop(self.arena.allocator(), context);
 }

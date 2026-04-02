@@ -1,7 +1,15 @@
-const wam = @import("win32").ui.windows_and_messaging;
-const CursorType = @import("../cursor.zig").CursorType;
+const win32 = @import("windows").win32;
 
-pub fn cursorToResource(cursor: CursorType) [*:0]align(1) const u16 {
+const wam = win32.ui.windows_and_messaging;
+const kam = win32.ui.input.keyboard_and_mouse;
+const zig = win32.zig;
+const Symbol = @import("../cursor.zig").Symbol;
+const Rect = @import("../root.zig").Rect;
+const Point = @import("../root.zig").Point;
+const util = @import("util.zig");
+const input = @import("../input.zig");
+
+pub fn cursorToResource(cursor: Symbol) [*:0]align(1) const u16 {
     return switch (cursor) {
         .default => wam.IDC_ARROW,
         .pointer => wam.IDC_HAND,
@@ -38,5 +46,48 @@ pub fn cursorToResource(cursor: CursorType) [*:0]align(1) const u16 {
         .alias => wam.IDC_ARROW,
         .copy => wam.IDC_ARROW,
         .zoom_in => wam.IDC_ARROW,
+        .zoom_out => wam.IDC_ARROW,
     };
+}
+
+/// Show or hide the cursor
+pub fn showCursor(state: bool) void {
+    _ = wam.ShowCursor(if (state) zig.TRUE else zig.FALSE);
+}
+
+/// Restrict the cursor to the bounds of the provided Rect. If the bounds is null
+/// it will remove any restriction on the cursors movement.
+pub fn clipCursor(bounds: ?Rect(u32)) void {
+    _ = wam.ClipCursor(if (bounds) |b| .{
+        .left = @bitCast(b.x),
+        .top = @bitCast(b.y),
+        .right = @bitCast(b.x + b.width),
+        .bottom = @bitCast(b.y + b.height),
+    } else null);
+}
+
+/// Get the cursor position in screen coordinates
+pub fn getCursorPos() Point(u32) {
+    var point: util.POINT = undefined;
+    _ = wam.GetCursorPos(&point);
+    return .{
+        .x = @bitCast(point.x),
+        .y = @bitCast(point.y),
+    };
+}
+
+/// Get whether the mouse button is down
+pub fn getKeyState(mouse_button: input.MouseButton) bool {
+    const value: u16 = switch (mouse_button) {
+        .left => @intFromEnum(kam.VK_LBUTTON),
+        .right => @intFromEnum(kam.VK_RBUTTON),
+        .middle => @intFromEnum(kam.VK_MBUTTON),
+        .x1 => @intFromEnum(kam.VK_XBUTTON1),
+        .x2 => @intFromEnum(kam.VK_XBUTTON2),
+        .unknown => 0,
+    };
+
+    if (value == 0) return false;
+
+    return (@as(u16, @bitCast(kam.GetAsyncKeyState(value))) & 0x8000) != 0;
 }

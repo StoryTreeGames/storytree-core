@@ -1,16 +1,20 @@
 pub const Icon = union(enum) {
-    icon: IconType,
-    custom: []const u8,
+    symbol: Symbol,
+    resource: []const u8,
 
-    pub const Default: @This() = .{ .icon = .default };
-    pub const Error: @This() = .{ .icon = .@"error" };
-    pub const Question: @This() = .{ .icon = .question };
-    pub const Warning: @This() = .{ .icon = .warning };
-    pub const Information: @This() = .{ .icon = .information };
-    pub const Security: @This() = .{ .icon = .security };
+    pub fn custom(p: []const u8) @This() {
+        return .{ .resource = p };
+    }
+
+    pub const Default: @This() = .{ .symbol = .default };
+    pub const Error: @This() = .{ .symbol = .@"error" };
+    pub const Question: @This() = .{ .symbol = .question };
+    pub const Warning: @This() = .{ .symbol = .warning };
+    pub const Information: @This() = .{ .symbol = .information };
+    pub const Security: @This() = .{ .symbol = .security };
 };
 
-pub const IconType = enum {
+pub const Symbol = enum {
     default,
     @"error",
     question,

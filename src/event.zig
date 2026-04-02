@@ -1,13 +1,11 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const input = @import("input.zig");
 
-const Window = @import("window.zig");
+const Window = @import("window.zig").Window;
+const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
-const MenuItem = @import("menu.zig").Item;
-const MenuInfo = @import("menu.zig").Info;
 
 pub const Modifiers = packed struct(u3) {
     ctrl: bool = false,
@@ -31,7 +29,7 @@ pub const KeyEvent = struct {
         const KEY = @TypeOf(key);
 
         const key_match = switch (KEY) {
-            u8, u21, u32, comptime_int => self.key == .char and @as(u21, @intCast(key)) == @as(u21, @intCast(std.mem.readInt(u32, self.key.char, .big))),
+            u8, u21, u32, comptime_int => self.key == .char and @as(u21, @intCast(key)) == @as(u21, @truncate(std.mem.readInt(u32, &self.key.char, .little))),
             input.VirtualKey, @Type(.enum_literal) => self.key == .virtual and self.key.virtual == key,
             else => @compileError("unsupported key type '" ++ @typeName(@TypeOf(key)) ++ "': expected u8, u21, u32, or virtual key"),
         };
@@ -81,6 +79,8 @@ pub const MouseEvent = struct {
     state: ButtonState,
     /// What mouse button was pressed: left, right, middle, x1, or x2
     button: MouseButton,
+    /// Mouse Position
+    pos: Point(i32),
 };
 
 /// Event corresponding to a size
@@ -89,32 +89,7 @@ pub const SizeEvent = struct {
     height: u32,
 };
 
-pub const MenuEvent = struct {
-    id: u32,
-    item: *MenuInfo,
-
-    pub fn toggle(self: *const @This(), state: bool) void {
-        switch (builtin.os.tag) {
-            .windows => {
-                const wam = @import("win32").ui.windows_and_messaging;
-                switch (self.item.payload) {
-                    .toggle => {
-                        _ = wam.CheckMenuItem(@ptrCast(@alignCast(self.item.menu)), self.id, if (state) 0x8 else 0x0);
-                    },
-                    .radio => |r| {
-                        _ = wam.CheckMenuRadioItem(@ptrCast(@alignCast(self.item.menu)), @intCast(r.group[0]), @intCast(r.group[0]), self.id, 0x0);
-                    },
-                    else => {},
-                }
-            },
-            else => @compileError("platform not supported"),
-        }
-    }
-};
-
-pub const Event = union(enum) {
-    /// Repaint request
-    repaint,
+pub const WindowEvent = union(enum) {
     /// Close request
     close,
     /// Resize event pose
@@ -122,148 +97,170 @@ pub const Event = union(enum) {
     /// Focus or Unfocus event post
     focused: bool,
     /// Key input event post
-    key_input: KeyEvent,
+    key: KeyEvent,
     /// Mouse button input event post
-    mouse_input: MouseEvent,
+    mouse: MouseEvent,
     /// Mouse move event post
-    mouse_move: Point(u16),
+    move: Point(i32),
+    /// Mouse move event post
+    raw: Point(i32),
     /// Mouse scroll event post
-    mouse_scroll: ScrollEvent,
-    /// Menu item event
+    scroll: ScrollEvent,
+    /// Change in window visibility
+    visibility: Visibility,
+    /// Menu item selected
     menu: MenuEvent,
-    theme: enum { light, dark },
 };
 
-pub const EventLoop = struct {
-    arena: std.heap.ArenaAllocator,
-    state: *anyopaque,
+pub const MenuEvent = struct {
+    kind: Kind,
+    target: u32,
 
-    handler: *const fn (*EventLoop, *anyopaque, *Window, Event) anyerror!bool,
-    windows: std.AutoArrayHashMapUnmanaged(usize, *Window) = .empty,
+    pub const Kind = enum { window, taskbar };
+};
 
-    pub fn init(allocator: std.mem.Allocator, state: anytype) !*@This() {
-        const State: type = switch (@typeInfo(@TypeOf(state))) {
-            .pointer => |pointer| pointer.child,
-            else => @TypeOf(state),
+pub const ThemeEvent = enum { light, dark };
+pub const UserEvent = struct {
+    id: u32,
+    payload: u32,
+
+    pub fn into(self: @This(), comptime T: type) T {
+        return switch (@typeInfo(T)) {
+            .@"enum" => @enumFromInt(self.payload),
+            .int => |i| switch (i.signedness) {
+                .signed => @intCast(@as(i32, @bitCast(self.payload))),
+                .unsigned => @intCast(self.payload)
+            },
+            else => @compileError("unsupported payload type")
+        };
+    }
+};
+pub const Event = union(enum) {
+    theme: ThemeEvent,
+    window: struct {
+        target: *Window,
+        event: WindowEvent,
+    },
+    user: UserEvent
+};
+
+pub const QueuedEvent = union(enum) {
+    theme: ThemeEvent,
+    destroy: usize,
+    user: UserEvent,
+    window: struct {
+        target: usize,
+        event: WindowEvent,
+    },
+};
+
+/// Linked queue (unbounded except by memory).
+/// - Non-blocking: tryPop returns null when empty; push allocates a node per item.
+/// - No Conditions/Mutexes. Just atomic pointer handoff.
+pub fn LinkedQueue(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        const Node = struct {
+            next: ?*Node,
+            value: T,
         };
 
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        errdefer arena.deinit();
-        const allo = arena.allocator();
+        allocator: std.mem.Allocator,
 
-        const Handler = struct {
-            pub fn handleEvent(event_loop: *EventLoop, data: *anyopaque, win: *Window, event: Event) !bool {
-                const s: *State = @ptrCast(@alignCast(data));
-                if (@hasDecl(State, "handleEvent")) {
-                    const func = @field(State, "handleEvent");
-                    return func(s, event_loop, win, event);
-                }
+        mutex: std.Thread.Mutex = .{},
+
+        head: ?*Node = null, // oldest
+        tail: ?*Node = null, // newest
+        count: usize = 0,
+
+        pub const PushError = std.mem.Allocator.Error;
+
+        /// Frees any remaining nodes. Ensure no threads are using the queue.
+        pub fn deinit(self: *Self) void {
+            self.mutex.lock();
+            var cur = self.head;
+            self.head = null;
+            self.tail = null;
+            self.count = 0;
+            self.mutex.unlock();
+
+            while (cur) |n| {
+                const next = n.next;
+                self.allocator.destroy(n);
+                cur = next;
             }
-        };
+        }
 
-        const el = try allo.create(@This());
-        el.* = .{
-            .arena = arena,
-            .state = @ptrCast(@alignCast(state)),
-            // Type erased event handler that propagates the os specific event back to the event_loop and state handler
-            .handler = Handler.handleEvent,
-        };
+        /// Enqueue one value. Allocates a node; never blocks (aside from the lock).
+        pub fn append(self: *Self, value: T) PushError!void {
+            const n = try self.allocator.create(Node);
+            n.* = .{ .next = null, .value = value };
 
-        if (@hasDecl(State, "setup")) {
-            const func = @field(State, "setup");
-            const F = @TypeOf(func);
-            const params = @typeInfo(F).@"fn".params;
-            const rtrn = @typeInfo(F).@"fn".return_type.?;
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
-            var args: std.meta.ArgsTuple(F) = undefined;
-            inline for (params, 0..) |param, i| {
-                args[i] = switch (param.type.?) {
-                    *State, *const State => state,
-                    *@This(), *const @This() => el,
-                    else => @compileError("invalid event loop handler argument type: " ++ @typeName(State)),
-                };
-            }
-
-            if (@typeInfo(rtrn) == .error_union) {
-                try @call(.auto, func, args);
+            if (self.tail) |t| {
+                t.next = n;
             } else {
-                @call(.auto, func, args);
+                self.head = n;
+            }
+            self.tail = n;
+            self.count += 1;
+        }
+
+        /// Clear all items in the queue freeing the memeory
+        /// and resetting the queue to 0 items.
+        pub fn clear(self: *Self) void {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            var next = self.head;
+            self.head = null;
+            self.count = 0;
+
+            while (next) |n| {
+                next = n.next;
+                self.allocator.destroy(n);
             }
         }
 
-        return el;
-    }
+        /// Dequeue one value if available; returns null when empty.
+        pub fn pop(self: *Self) ?T {
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
-    pub fn setAppId(self: *const @This(), app_id: []const u8) !void {
-        switch (builtin.os.tag) {
-            .windows => {
-                const id = try std.unicode.utf8ToUtf16LeAllocZ(self.arena.allocator(), app_id);
-                defer self.arena.allocator().free(id);
-                try @import("windows/event.zig").setAppId(id);
-            },
-            else => @compileError("platform not supported"),
+            const h = self.head orelse return null;
+
+            // Detach head
+            const next = h.next;
+            self.head = next;
+            if (next == null) self.tail = null;
+            self.count -= 1;
+
+            const result = h.value;
+            self.allocator.destroy(h);
+            return result;
         }
-    }
 
-    pub fn deinit(self: *@This()) void {
-        self.arena.deinit();
-    }
-
-    pub fn createWindow(self: *@This(), opts: Window.Options) !*Window {
-        const allocator = self.arena.allocator();
-
-        const win = try allocator.create(Window);
-        errdefer allocator.destroy(win);
-        win.* = try .init(allocator, opts, self);
-
-        try self.windows.put(allocator, win.id(), win);
-        return win;
-    }
-
-    pub fn closeWindow(self: *@This(), id: usize) void {
-        if (self.windows.get(id)) |win| {
-            win.deinit();
-            self.arena.allocator().destroy(win);
-            _ = self.windows.swapRemove(id);
+        pub fn isEmpty(self: *Self) bool {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            return self.head == null;
         }
-    }
 
-    pub fn isActive(self: *const @This()) bool {
-        return self.windows.count() > 0;
-    }
-
-    pub fn poll(self: *@This()) !bool {
-        _ = self;
-
-        switch (builtin.os.tag) {
-            .windows => {
-                return try @import("windows/event.zig").EventLoop.pollMessages();
-            },
-            else => @compileError("platform not supported"),
+        pub fn len(self: *Self) usize {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            return self.count;
         }
-    }
+    };
+}
 
-    pub fn run(self: *@This()) !void {
-        switch (builtin.os.tag) {
-            .windows => {
-                try @import("windows/event.zig").EventLoop.messageLoop(self);
-            },
-            else => @compileError("platform not supported"),
-        }
-    }
+pub const EventQueue = LinkedQueue(QueuedEvent);
 
-    pub fn handleEvent(self: *@This(), args: anytype) bool {
-        switch (builtin.os.tag) {
-            .windows => {
-                if (self.windows.get(@intFromPtr(args[0]))) |win| {
-                    const event = @import("windows/event.zig").parseEvent(win, args[0], args[1], args[2], args[3]);
-                    if (event) |e| {
-                        return self.handler(self, self.state, win, e) catch false;
-                    }
-                }
-                return false;
-            },
-            else => @compileError("platform not supported"),
-        }
-    }
+pub const EventLoop = switch (@import("builtin").target.os.tag) {
+    .windows => @import("windows/event.zig"),
+    .linux => @import("linux/event.zig"),
+    else => @compileError("unsupported platform"),
 };

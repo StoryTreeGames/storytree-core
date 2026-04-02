@@ -1,3 +1,8 @@
+const impl = switch (@import("builtin").os.tag) {
+    .windows => @import("windows/input.zig"),
+    else => @compileError("platform not supported"),
+};
+
 pub const Key = union(enum) {
     virtual: VirtualKey,
     char: [4]u8,
@@ -21,7 +26,7 @@ pub const Key = union(enum) {
 /// Keyboard key to keycode mapping
 pub const VirtualKey = enum(u32) {
     /// backspace key
-    back,
+    backspace,
     /// tab key
     tab,
     /// clear key
@@ -30,22 +35,38 @@ pub const VirtualKey = enum(u32) {
     @"return",
     /// shift key
     shift,
+    /// left shift key
+    left_shift,
+    /// right shift key
+    right_shift,
     /// ctrl key
     control,
+    /// left ctrl key
+    left_control,
+    /// right ctrl key
+    right_control,
     /// alt key
     alt,
-    /// pause key
-    pause,
+    /// left alt key
+    left_alt,
+    /// right alt key
+    right_alt,
+    /// left windows key
+    left_super,
+    /// right windows key
+    right_super,
     /// caps lock key
     caps_lock,
+    /// num lock key
+    num_lock,
+    /// scroll lock key
+    scroll_lock,
+    /// pause key
+    pause,
     /// ime kana mode
     kana,
     /// ime hangul mode
     hangul,
-    /// ime kana or hangul mode
-    kana_hangul,
-    /// ime on
-    ime_on,
     /// ime junja mode
     junja,
     /// ime final mode
@@ -54,10 +75,6 @@ pub const VirtualKey = enum(u32) {
     hanja,
     /// ime kanji mode
     kanji,
-    /// ime hanja or kanji mode
-    hanja_kanji,
-    /// ime off
-    ime_off,
     /// esc key
     escape,
     /// ime convert
@@ -69,9 +86,9 @@ pub const VirtualKey = enum(u32) {
     /// ime mode change request
     modechange,
     /// page up key
-    prior,
+    page_up,
     /// page down key
-    next,
+    page_down,
     /// end key
     end,
     /// home key
@@ -98,8 +115,6 @@ pub const VirtualKey = enum(u32) {
     delete,
     /// help key
     help,
-    /// windows key
-    super,
     /// applications key
     apps,
     /// computer sleep key
@@ -184,10 +199,6 @@ pub const VirtualKey = enum(u32) {
     f23,
     /// f24 key
     f24,
-    /// num lock key
-    num_lock,
-    /// scroll lock key
-    scroll,
     /// browser back key
     browser_back,
     /// browser forward key
@@ -224,43 +235,28 @@ pub const VirtualKey = enum(u32) {
     launch_app1,
     /// start application 2 key
     launch_app2,
-    /// used for miscellaneous characters; it can vary by keyboard.
-    oem_8,
     /// the <> keys on the us standard keyboard, or the \\| key on the non-us 102-key keyboard
     oem_102,
-    /// ime process key
-    processkey,
-    /// used to pass unicode characters as if they were keystrokes. the packet key is the low word of a 32-bit virtual key value used for non-keyboard input methods. for more information, see remark in keybdinput, sendinput, wm_keydown, and wm_keyup
-    packet,
-    /// attn key
-    attn,
-    /// crsel key
-    crsel,
-    /// exsel key
-    exsel,
-    /// erase eof key
-    ereof,
-    /// play key
-    play,
-    /// zoom key
-    zoom,
-    /// reserved
-    noname,
-    /// pa1 key
-    pa1,
-    /// clear key
-    oem_clear,
+    unknown,
 };
 
 pub const MouseButton = enum(u32) {
     /// The left mouse button.
-    left = 0x0001,
+    left,
     /// The middle mouse button.
-    middle = 0x0010,
+    middle,
     /// The right mouse button.
-    right = 0x0002,
+    right,
     /// The first X button.
-    x1 = 0x0020,
+    x1,
     /// The second X button.
-    x2 = 0x0040,
+    x2,
+    unknown,
 };
+
+/// Get whether the key is down
+pub const getKeyDown = impl.getKeyState;
+/// Get whether the key is up
+pub fn getKeyUp(key: anytype) bool {
+    return !impl.getKeyState(key);
+}

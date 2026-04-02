@@ -1,124 +1,123 @@
 const std = @import("std");
+const common = @import("common.zig");
+const TargetTag = @import("builtin").target.os.tag;
 
-const core = @import("storytree-core");
-const event = core.event;
+const zinit = @import("zinit");
+const event = zinit.event;
+const input = zinit.input;
 
-const Window = @import("storytree-core").Window;
+const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
-const Event = event.Event;
+const WindowEvent = event.WindowEvent;
 
-pub const App = struct {
+const State = struct {
     allocator: std.mem.Allocator,
-    cursor: core.cursor.Cursor = .Default,
+    cursor: zinit.cursor.Cursor = .Default,
     pos: enum { tl, tr, bl, br } = .tl,
+    fullscreen: bool = false,
 
-    pub fn setup(self: *const @This(), event_loop: *EventLoop) !void {
-        const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{ @tagName(self.cursor.icon) });
-        defer self.allocator.free(title);
+    playing: bool = false,
+    progress: u64 = 0,
 
-        _ = try event_loop.createWindow(.{
-            .title = title,
-            .width = 800,
-            .height = 600,
-            .icon = .{ .custom = "examples\\assets\\icon.ico" }
-        });
-    }
-
-    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, win: *Window, evt: Event) !bool {
+    pub fn handleEvent(self: *@This(), event_loop: *EventLoop, window: *Window, evt: WindowEvent) !void {
         switch (evt) {
-            .close => {
-                if (core.dialog.message(.yes_no, .{
-                    .icon = .warning,
-                    .title = "Exit",
-                    .message = "Are you sure you want to exit the application?"
-                }) == .yes) {
-                    event_loop.closeWindow(win.id());
+            .close => event_loop.closeWindow(window.id()),
+            .key => |key_event| {
+                std.debug.print("{any}\n", .{key_event.key});
+                if (key_event.matches(.f11, .{})) {
+                    if (self.fullscreen) window.restore() else try window.fullscreen();
+                    self.fullscreen = !self.fullscreen;
                 }
-            },
-            .key_input => |key_event| {
+
+                if (key_event.matches('b', .{})) {
+                    std.debug.print("[SPACE]: {any}\n", .{input.getKeyDown(' ')});
+                    std.debug.print("[LEFT CLICK]: {any}\n", .{zinit.cursor.getMouseButton(.left)});
+                }
+
                 if (key_event.matches(.tab, .{ .shift = false })) {
-                    self.cursor = .{ .icon = @enumFromInt(@as(u8, (@intFromEnum(self.cursor.icon)) +| 1) % 33) };
+                    self.cursor = .{ .symbol = @enumFromInt(@as(u8, (@intFromEnum(self.cursor.symbol)) +| 1) % 33) };
 
-                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{ @tagName(self.cursor.icon) });
+                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.symbol)});
                     defer self.allocator.free(title);
-                    try win.setTitle(title);
+                    try window.setTitle(title);
 
-                    try win.setCursor(self.cursor);
+                    try window.setCursor(self.cursor);
                 }
 
                 if (key_event.matches(.tab, .{ .shift = true })) {
-                    var new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(self.cursor.icon))))) - 1;
+                    var new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(self.cursor.symbol))))) - 1;
                     if (new_cursor < 0) {
-                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(core.cursor.CursorType.zoom_in))))) + new_cursor + 1;
+                        new_cursor = @as(i8, @bitCast(@as(u8, (@intFromEnum(zinit.cursor.Symbol.zoom_in))))) + new_cursor + 1;
                     }
-                    self.cursor = .{ .icon = @enumFromInt(new_cursor) };
+                    self.cursor = .{ .symbol = @enumFromInt(new_cursor) };
 
-                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{ @tagName(self.cursor.icon) });
+                    const title = try std.fmt.allocPrint(self.allocator, "Cursor ({s})", .{@tagName(self.cursor.symbol)});
                     defer self.allocator.free(title);
-                    try win.setTitle(title);
-
-                    try win.setCursor(self.cursor);
+                    try window.setTitle(title);
+                    try window.setCursor(self.cursor);
                 }
 
                 if (key_event.matches(.right, .{})) {
-                    const client = win.getRect();
+                    self.progress = @min(100, self.progress +| 10);
+
+                    const client = window.getClientRect();
                     switch (self.pos) {
                         .tl, .tr => {
-                            win.setCursorPos(client.width -| 1, 0);
+                            window.setCursorPos(client.width -| 1, 0);
                             self.pos = .tr;
                         },
                         .bl, .br => {
-                            win.setCursorPos(client.width -| 1, client.height -| 1);
+                            window.setCursorPos(client.width -| 1, client.height -| 1);
                             self.pos = .br;
                         },
                     }
                 }
 
                 if (key_event.matches(.left, .{})) {
-                    const client = win.getRect();
+                    self.progress -|= 10;
+                    const client = window.getClientRect();
                     switch (self.pos) {
                         .tl, .tr => {
-                            win.setCursorPos(0, 0);
+                            window.setCursorPos(0, 0);
                             self.pos = .tl;
                         },
                         .bl, .br => {
-                            win.setCursorPos(0, client.height -| 1);
+                            window.setCursorPos(0, client.height -| 1);
                             self.pos = .bl;
                         },
                     }
                 }
 
                 if (key_event.matches(.up, .{})) {
-                    const client = win.getRect();
+                    const client = window.getClientRect();
                     switch (self.pos) {
                         .br, .tr => {
-                            win.setCursorPos(client.width -| 1, 0);
+                            window.setCursorPos(client.width -| 1, 0);
                             self.pos = .tr;
                         },
                         .bl, .tl => {
-                            win.setCursorPos(0, 0);
+                            window.setCursorPos(0, 0);
                             self.pos = .tl;
                         },
                     }
                 }
 
                 if (key_event.matches(.down, .{})) {
-                    const client = win.getRect();
+                    const client = window.getClientRect();
                     switch (self.pos) {
                         .br, .tr => {
-                            win.setCursorPos(client.width -| 1, client.height -| 1);
+                            window.setCursorPos(client.width -| 1, client.height -| 1);
                             self.pos = .br;
                         },
                         .bl, .tl => {
-                            win.setCursorPos(0, client.height -| 1);
+                            window.setCursorPos(0, client.height -| 1);
                             self.pos = .bl;
                         },
                     }
                 }
             },
-            else => return false,
+            else => {},
         }
-        return true;
     }
 };
 
@@ -127,10 +126,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var app = App{ .allocator = allocator };
-
-    var event_loop = try EventLoop.init(allocator, &app);
+    const event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
+
+    try event_loop.setAppId("com.storytree.core");
 
     // Custom debug output of window
     std.debug.print(
@@ -144,8 +143,24 @@ pub fn main() !void {
         \\
     , .{});
 
+    var state: State = .{ .allocator = allocator };
+
+    const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
+    defer allocator.free(title);
+    _ = try event_loop.createWindow(.{
+        .title = title,
+        .width = 800,
+        .height = 600,
+        .icon = .custom("assets\\icon.ico"),
+    });
+
     while (event_loop.isActive()) {
-        _ = try event_loop.poll();
+        try event_loop.wait();
+        while (event_loop.pop()) |e| {
+            std.debug.print("{any}\n", .{e});
+            if (e == .window) {
+                try state.handleEvent(event_loop, e.window.target, e.window.event);
+            }
+        }
     }
-    // try event_loop.run();
 }

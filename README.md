@@ -1,34 +1,182 @@
-# Zig Native Window Library (ZNWL)
+# StoryTree Core
 
 This project serves as a part of a larger project to create a game engine from scratch. However, I strive to keep this library abstracted from the game engine and more generic. The initial focus of features may be around getting a minimal product for the engine, but I plan to expand the library to be generic and easy to use for any purpose.
 
-I am fairly new to Zig and it has been a few years since I last programmed in C/C++. With that in mind this project also serves as a learning tool for Zig, system programming, and open source.
+Any tips, PRs, and overall help are more than welcome.
 
-I hope to keep all my projects as open source and community based as possible. Any tips, PRs, and overall help are more than welcome.
-
-> ⚠️ Warn: This repo is currently exploratory and the API is subject to change with every merge into the main branch. To help with the volatile nature, this project will be split into a develop and a main branch.
+> ⚠️ Warn: This repo is currently exploratory and the API is subject to change with every merge into the main branch
 
 ## Goal
 
-A native windowing library cross-compiling without any fuss or problems to Windows, Linux (X11 + Wayland), MacOS, iOS, and Android.
 
-The library is written in pure Zig with the only non zig portions being APIs to native system libraries. There is nothing wrong with using GLFW and other related libraries, I just want to try something new. This library will start off basic and naïve and grow to be smart, easy to use, and full of features.
+The library is written in as much pure Zig as possible to provide an easy to use API with minimal dependencies. There is nothing wrong with using GLFW and other related libraries, I just want to try to create something new. This library will start off basic and naïve and grow to be intuitive, easy to use, and full of platform specific opt in features.
 
-Hopefully this library will stay generic enough to be able to be used with most other libraries and projects like `Vulkan` and `ImGUI`.
+Hopefully this library will remain generic enough to be able to be used with most other libraries and projects like `Vulkan` and `ImGUI`.
 
-**References**
+## Requirements
+
+- **Linux**
+  - Packages: `wayland-protocols`, `libwayland-dev` (or a varant that provides wayland-scanner), `libxkbcommon-dev`, `libdbus-1-dev`
+
+## TODO
+
+- [x] Move Dialog module to individual repo
+- [x] Move Notification module to individual repo
+- [x] Move System Tray module to individual repo
+- [x] Move Window Menu module to individual repo
+- [x] Move Windows Taskbar/Toolbar to individual repo
+
+- [-] Windows
+  - [x] Basic window creation
+    - [x] Blank Window
+    - [x] Size
+    - [x] Pos
+    - [x] Icon
+    - [x] Cursor
+    - [x] Title
+    - [x] Resizable
+    - [x] Theme
+    - [x] Show (min/max/normal)
+  - [x] Window manipulation
+    - [x] Minimize
+    - [x] Maxamize
+    - [x] Restore 
+    - [x] Update Title
+    - [x] Update Icon
+    - [x] Update Cursor
+    - [x] Show/Hide Cursor
+    - [x] Set Cursor Pos
+    - [x] Change Window Theme
+    - [x] Set Cursor Capture
+    - [x] Fullscreen
+  - [-] Event listening and handling
+    - [x] Close 
+    - [-] Keyboard
+      - [ ] Finish keyboard input to support dead keys
+    - [x] Mouse
+      - [x] Normal mouse input
+      - [x] Raw Mouse Input
+    - [x] Resize
+    - [ ] Repaint
+    - [x] Theme Change
+    - [x] Drag Drop
+    - [ ] Gamepad
+  - [-] Query
+    - [x] Keys
+    - [x] Mouse
+    - [ ] Gamepad
+  - [x] Set App ID
+  - [-] Platform Specific
+    - [x] Taskbar
+        - [x] Progress
+        - [x] Buttons
+
+- [ ] Wayland
+  - [-] Basic window creation
+    - [x] Blank Window
+    - [x] Size
+    - [x] Pos (Not Possible)
+    - [ ] Icon
+    - [ ] Cursor
+    - [x] Title
+    - [x] Resizable
+        - Controlled by the rendering impl
+    - [ ] Theme
+    - [x] Show (min/max/normal)
+        - Hidding is controlled by the rendering impl
+  - [ ] Window manipulation
+    - [x] Minimize
+    - [x] Maxamize
+    - [x] Restore 
+    - [x] Update Title
+    - [ ] Update Icon
+    - [ ] Update Cursor
+    - [ ] Show/Hide Cursor
+    - [ ] Set Cursor Pos
+    - [ ] Change Window Theme
+    - [ ] Set Cursor Capture
+    - [x] Fullscreen
+  - [ ] Event listening and handling
+    - [x] Close 
+    - [x] Keyboard
+    - [-] Mouse
+      - [x] Normal mouse input
+      - [ ] Raw Mouse Input
+    - [x] Resize
+    - [ ] Repaint
+    - [ ] Theme Change
+    - [ ] Drag Drop
+    - [ ] Gamepad
+  - [ ] Query
+    - [ ] Keys
+    - [ ] Mouse
+    - [ ] Gamepad
+  - [-] Title Bar
+  - [ ] Set App ID
+  - [ ] Platform Specific
+
+- [ ] MacOS
+  - [ ] Basic window creation
+    - [ ] Size
+    - [ ] Pos
+    - [ ] Icon
+    - [ ] Cursor
+    - [ ] Title
+    - [ ] Resizable
+    - [ ] Theme
+    - [ ] Show (min/max/normal)
+  - [ ] Window manipulation
+    - [ ] Minimize
+    - [ ] Maxamize
+    - [ ] Restore 
+    - [ ] Update Title
+    - [ ] Update Icon
+    - [ ] Update Cursor
+    - [ ] Show/Hide Cursor
+    - [ ] Set Cursor Pos
+    - [ ] Change Window Theme
+    - [ ] Set Cursor Capture
+    - [ ] Fullscreen
+  - [ ] Event listening and handling
+    - [ ] Close 
+    - [ ] Keyboard
+    - [ ] Mouse
+    - [ ] Resize
+    - [ ] Repaint
+    - [ ] Theme Change
+    - [ ] Drag Drop
+  - [ ] Query
+    - [ ] Keys
+    - [ ] Mouse
+    - [ ] Gamepad, controller, joystick, etc.
+  - [ ] Title Bar
+  - [ ] Set App ID
+
+## Notes
+
+- Windows
+    - Start Menu shortcut is needed for things like associating notifications with the application
+    - Add a `<filename>.rc` file to the build.zig with `exe.addWin32ResourceFile` function
+        - This can be used to set an exe icon along with other exe specific configurations
+    - See setJumpList in `src/windows/taskbar.zig` where it describes how to set up file association with the app to allow `IShellItem` items in the jump list
+
+## References
 
 - GLFW \(C\): https://www.glfw.org/docs/3.3/window_guide.html
 - Winit (Rust): https://github.com/rust-windowing/winit
-  - [windows::window](https://github.com/rust-windowing/winit/blob/4cd6877e8e19e7e1ba957a409394dca1af4afcdd/src/platform_impl/windows/window.rs#L432))
+  - [windows::window](https://github.com/rust-windowing/winit/blob/4cd6877e8e19e7e1ba957a409394dca1af4afcdd/src/platform_impl/windows/window.rs#L432)
+- windows-rs (Rust): https://github.com/microsoft/windows-rs
+
 - CursorOption \(Rust\): https://docs.rs/cursor-icon/latest/cursor_icon/
+
 - Notifications
   - Windows
     - Toast Notification in plain C: https://gist.github.com/valinet/3283c79ba35fc8f103c747c8adbb6b23
     - Win32 ToastNotificationManager: https://learn.microsoft.com/en-us/uwp/api/windows.ui.notifications.toastnotificationmanager?view=winrt-26100
 
+- Gamepad Specification:
+  - W3C Gamepad API: https://www.w3.org/TR/gamepad/
+  - There is no standard for game engines but mimicking the one for web browsers makes sense
 
-## TODO
-
-- [ ] Fix keyboard input
-- [ ] Add gamepad, controller, joystick input
+- System Tray
+    Linux: use `libappindicator` and maybe [`ext_tray_v1`](https://wayland.app/protocols/wayland-protocols/355) when it becomse stable

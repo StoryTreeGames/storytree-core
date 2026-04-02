@@ -1,12 +1,10 @@
 const std = @import("std");
-pub const Window = @import("window.zig");
+pub const window = @import("window.zig");
 pub const cursor = @import("cursor.zig");
 pub const icon = @import("icon.zig");
 pub const input = @import("input.zig");
 pub const event = @import("event.zig");
-pub const dialog = @import("dialog.zig");
-pub const menu = @import("menu.zig");
-pub const notification = @import("notification.zig");
+pub const drag_drop = @import("drag_drop.zig");
 
 pub fn Point(By: type) type {
     return struct {
@@ -44,13 +42,16 @@ pub const Color = packed struct(u32) {
 pub const Font = struct {
     height: u16,
     width: u16,
-    point_size: u16,
+    point_size: u32,
     color: Color,
     weight: u32,
     italic: bool,
     underline: bool,
     strikeout: bool,
-    // TODO: allocate or have better representation
     name: []const u8,
     // TODO: precisions, charset, quality, pitch and family, orientation, escapement
+
+    pub fn deinit(self: @This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+    }
 };

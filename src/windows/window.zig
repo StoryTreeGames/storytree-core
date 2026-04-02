@@ -2,191 +2,107 @@
 
 const std = @import("std");
 
-const Rect = @import("../root.zig").Rect;
-
-const _menu = @import("../menu.zig");
-const MenuInfo = _menu.Info;
-const MenuItem = _menu.Item;
-const MenuCheckable = _menu.Checkable;
-const MenuAction = _menu.Action;
-
-const win32 = @import("win32");
+const windows = @import("windows");
+const win32 = windows.win32;
+const UISettings = windows.UI.ViewManagement.UISettings;
+const ole = win32.system.ole;
 const foundation = win32.foundation;
 const windows_and_messaging = win32.ui.windows_and_messaging;
 const keyboard_and_mouse = win32.ui.input.keyboard_and_mouse;
 const library_loader = win32.system.library_loader;
 const gdi = win32.graphics.gdi;
 const zig = win32.zig;
+const shell = win32.ui.shell;
 const dwm = win32.graphics.dwm;
+const DestroyIcon = windows_and_messaging.DestroyIcon;
+const DestroyCursor = windows_and_messaging.DestroyCursor;
+const Shell_NotifyIconW = shell.Shell_NotifyIconW;
+const NIM_ADD = shell.NIM_ADD;
+const NIM_MODIFY = shell.NIM_MODIFY;
+const NIM_DELETE = shell.NIM_DELETE;
+const NIM_SETVERSION = shell.NIM_SETVERSION;
+const NOTIFYICONDATAW = shell.NOTIFYICONDATAW;
+const HICON = windows_and_messaging.HICON;
+const HCURSOR = windows_and_messaging.HCURSOR;
+const HWND = foundation.HWND;
 
-const util = @import("util.zig");
-const cursorToResource = @import("cursor.zig").cursorToResource;
-const iconToResource = @import("icon.zig").iconToResource;
-
-const ico = @import("../icon.zig");
 const csr = @import("../cursor.zig");
-const IconType = ico.IconType;
-const CursorType = @import("../cursor.zig").CursorType;
-const Win = @import("../window.zig");
+const dnd = @import("../drag_drop.zig");
 const EventLoop = @import("../event.zig").EventLoop;
+const ico = @import("../icon.zig");
+const Rect = @import("../root.zig").Rect;
+const Win = @import("../window.zig");
+const cursorToResource = @import("cursor.zig").cursorToResource;
+const dnd_win = @import("drag_drop.zig");
+const iconToResource = @import("icon.zig").iconToResource;
+const util = @import("util.zig");
 
-const HMENU = windows_and_messaging.HMENU;
-const WINAPI = std.os.windows.WINAPI;
+const ID_TRAY = 1001;
 
 const Icon = union(enum) {
-    icon: IconType,
-    custom: [:0]const u16,
-};
+    system: ?HICON,
+    resource: ?HICON,
 
-const Cursor = union(enum) {
-    icon: CursorType,
-    custom: struct {
-        path: [:0]const u16,
-        width: i32,
-        height: i32,
-    },
-};
-
-pub const MenuContext = struct {
-    allocator: std.mem.Allocator,
-    count: *usize,
-    current: HMENU,
-    menus: *std.ArrayListUnmanaged(HMENU),
-    itemToMenu: *std.AutoArrayHashMapUnmanaged(usize, MenuInfo),
-
-    pub fn sub(self: *@This(), inner: HMENU) @This() {
-        return .{
-            .allocator = self.allocator,
-            .count = self.count,
-            .menus = self.menus,
-            .itemToMenu = self.itemToMenu,
-            .current = inner,
+    pub fn hIcon(self: *const @This()) ?HICON {
+        return switch (self.*) {
+            .system => |h| h,
+            .resource => |h| h,
         };
     }
 
-    pub fn appendSeperator(self: *@This()) !void {
-        if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_SEPARATOR, 0, null) == 0) {
-            return error.AppendMenuSeperator;
-        }
-    }
-
-    pub fn appendAction(self: *@This(), action: MenuAction) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, action.label.len, 0);
-        @memcpy(label, action.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = action.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{ .action = .{ .label = label } },
-        });
-        if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_STRING, self.count.*, label.ptr) == 0) {
-            return error.AppendMenuAction;
-        }
-    }
-
-    pub fn appendToggle(self: *@This(), checkable: MenuCheckable) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, checkable.label.len, 0);
-        @memcpy(label, checkable.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = checkable.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{
-                .toggle = .{ .label = label },
-            },
-        });
-        if (windows_and_messaging.AppendMenuA(
-            self.current,
-            if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED,
-            self.count.*,
-            label.ptr,
-        ) == 0) {
-            return error.AppendMenuToggle;
-        }
-    }
-
-    pub fn appendRadioGroup(self: *@This(), items: []const MenuCheckable) !void {
-        const start = self.count.* + 1;
-        const end = start + items.len;
-
-        for (items) |item| {
-            try self.appendRadioItem(item, start, end);
-        }
-    }
-
-    pub fn appendRadioItem(self: *@This(), checkable: MenuCheckable, start: usize, end: usize) !void {
-        self.count.* += 1;
-        const label = try self.allocator.allocSentinel(u8, checkable.label.len, 0);
-        @memcpy(label, checkable.label);
-        try self.itemToMenu.put(self.allocator, self.count.*, .{
-            .id = checkable.id,
-            .menu = @ptrCast(self.current),
-            .payload = .{
-                .radio = .{
-                    .group = .{ start, end },
-                    .label = label,
-                },
-            },
-        });
-        if (windows_and_messaging.AppendMenuA(self.current, if (checkable.default) windows_and_messaging.MF_CHECKED else windows_and_messaging.MF_UNCHECKED, self.count.*, label.ptr) == 0) {
-            return error.AppendMenuRadioItem;
-        }
-    }
-
-    pub fn appendMenu(self: *@This(), items: []const MenuItem) !void {
-        for (items) |item| {
-            switch (item) {
-                .seperator_item => try self.appendSeperator(),
-                .action_item => |action| try self.appendAction(action),
-                .toggle_item => |toggle| try self.appendToggle(toggle),
-                .radio_group_item => |group| try self.appendRadioGroup(group),
-                .menu_item => |subMenu| {
-                    const innerMenu = windows_and_messaging.CreatePopupMenu().?;
-                    try self.menus.append(self.allocator, innerMenu);
-                    if (windows_and_messaging.AppendMenuA(self.current, windows_and_messaging.MF_POPUP, @intFromPtr(innerMenu), subMenu.label.ptr) == 0) {
-                        return error.AppendMenuSubmenu;
-                    }
-
-                    var inner = self.sub(innerMenu);
-                    try inner.appendMenu(subMenu.items);
-                },
-            }
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .resource => |h| _ = DestroyIcon(h),
+            else =>{}
         }
     }
 };
 
-title: [:0]const u16,
-class: [:0]const u16,
-icon: Icon,
-cursor: Cursor,
-theme: Win.Theme,
-current_theme: Win.Theme,
+const Cursor = union(enum) {
+    system: ?HCURSOR,
+    resource: ?HCURSOR,
 
-handle: foundation.HWND,
-instance: ?foundation.HINSTANCE,
-
-menus: std.ArrayListUnmanaged(HMENU) = .empty,
-itemToMenu: std.AutoArrayHashMapUnmanaged(usize, MenuInfo) = .empty,
-
-pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    var buf: [4]u8 = undefined;
-
-    try writer.writeAll("Window { title: '");
-    var title = std.unicode.Utf16LeIterator.init(value.title);
-    while (try title.nextCodePoint()) |cp| {
-        const len = try std.unicode.utf8Encode(cp, &buf);
-        try writer.writeAll(buf[0..len]);
+    pub fn hCursor(self: *const @This()) ?HCURSOR {
+        return switch (self.*) {
+            .system => |h| h,
+            .resource => |h| h,
+        };
     }
 
-    try writer.writeAll("', class: '");
-    var class = std.unicode.Utf16LeIterator.init(value.class);
-    while (try class.nextCodePoint()) |cp| {
-        const len = try std.unicode.utf8Encode(cp, &buf);
-        try writer.writeAll(buf[0..len]);
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .resource => |h| _ = DestroyCursor(h),
+            else =>{}
+        }
     }
+};
 
-    try writer.writeAll("' }");
-}
+arena: std.heap.ArenaAllocator,
+
+title: [:0]const u16 = undefined,
+class: [:0]const u16 = undefined,
+
+handle: foundation.HWND = undefined,
+instance: ?foundation.HINSTANCE = null,
+
+icon: Icon = .{ .system = null },
+cursor: Cursor = .{ .system = null },
+
+theme: Win.Theme = .system,
+current_theme: Win.Theme = .dark,
+
+fullscreen_state: ?struct {
+    client: util.RECT,
+    style: windows_and_messaging.WINDOW_STYLE,
+    ex_style: windows_and_messaging.WINDOW_EX_STYLE,
+    state: windows_and_messaging.SHOW_WINDOW_CMD,
+} = null,
+
+drag_drop: ?dnd.DropTarget = null,
+drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
+
+/// Reference to the event loops UISettings instance
+ui_settings: *UISettings,
 
 /// Create a new window
 ///
@@ -197,20 +113,26 @@ pub fn format(value: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, 
 /// @returns `Window` An instance of a window. Contains methods to manipulate the window.
 pub fn init(
     allocator: std.mem.Allocator,
-    options: Win.Options,
     event_loop: *EventLoop,
+    options: Win.Options,
 ) !*@This() {
     const win = try allocator.create(@This());
     errdefer allocator.destroy(win);
 
-    const title = try util.utf8ToUtf16Alloc(allocator, options.title);
-    errdefer allocator.free(title);
-    const class = try util.createUIDClass(allocator);
-    errdefer allocator.free(class);
+    win.* = .{
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .ui_settings = event_loop.ui_settings,
+    };
+    const allo = win.arena.allocator();
 
-    const instance = library_loader.GetModuleHandleW(null);
+    win.title = try util.utf8ToUtf16Alloc(allo, options.title);
+    errdefer allo.free(win.title);
+    win.class = try util.createUIDClass(allo);
+    errdefer allo.free(win.class);
+
+    win.instance = library_loader.GetModuleHandleW(null);
     const wnd_class = windows_and_messaging.WNDCLASSW{
-        .lpszClassName = class.ptr,
+        .lpszClassName = win.class.ptr,
 
         .style = windows_and_messaging.WNDCLASS_STYLES{ .HREDRAW = 1, .VREDRAW = 1 },
         .cbClsExtra = 0,
@@ -221,7 +143,7 @@ pub fn init(
         .hbrBackground = gdi.GetStockObject(gdi.WHITE_BRUSH),
         .lpszMenuName = null,
 
-        .hInstance = instance,
+        .hInstance = win.instance,
         .lpfnWndProc = wndProc, // wndProc,
     };
 
@@ -239,14 +161,14 @@ pub fn init(
         .DLGFRAME = 1,
         .BORDER = 1,
         // Show window after it is created
-        .MINIMIZE = @intFromBool(options.show == .minimize),
-        .MAXIMIZE = @intFromBool(options.show == .maximize),
+        // .MINIMIZE = @intFromBool(options.show == .minimize),
+        // .MAXIMIZE = @intFromBool(options.show == .maximize),
     };
 
-    const hwnd = windows_and_messaging.CreateWindowExW(
+    win.handle = windows_and_messaging.CreateWindowExW(
         windows_and_messaging.WINDOW_EX_STYLE{},
-        class.ptr,
-        title.ptr,
+        win.class.ptr,
+        win.title.ptr,
         window_style, // style
         if (options.x) |x| @intCast(x) else windows_and_messaging.CW_USEDEFAULT,
         if (options.y) |y| @intCast(y) else windows_and_messaging.CW_USEDEFAULT, // initial position
@@ -254,74 +176,143 @@ pub fn init(
         if (options.height) |height| @intCast(height) else windows_and_messaging.CW_USEDEFAULT, // initial size
         null, // Parent
         null, // Menu
-        instance,
+        win.instance,
         @ptrCast(event_loop), // WM_CREATE lpParam
     ) orelse return error.SystemCreateWindow;
 
-    // Set dark title bar
-    var value: foundation.BOOL = undefined;
-    var current_theme: Win.Theme = .dark;
+    var value: foundation.BOOL = zig.TRUE;
+    win.current_theme = .dark;
     switch (options.theme) {
-        .dark => value = zig.TRUE,
         .light => {
             value = zig.FALSE;
-            current_theme = .light;
+            win.current_theme = .light;
         },
-        .system => if (util.isLightTheme() catch false) {
-            current_theme = .light;
+        .system => if (util.isLight(try win.ui_settings.GetColorValue(.Foreground))) {
+            win.current_theme = .light;
             value = zig.FALSE;
-        } else {
-            value = zig.TRUE;
-        },
+        } else {},
+        else => {},
     }
 
-    _ = dwm.DwmSetWindowAttribute(hwnd, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
-    _ = windows_and_messaging.ShowWindow(hwnd, windows_and_messaging.SW_SHOWDEFAULT);
+    _ = dwm.DwmSetWindowAttribute(win.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
+    _ = windows_and_messaging.ShowWindow(win.handle, switch (options.show) {
+        .hidden => windows_and_messaging.SW_HIDE,
+        .minimize => windows_and_messaging.SW_MINIMIZE,
+        .maximize => windows_and_messaging.SW_MAXIMIZE,
+        else => windows_and_messaging.SW_SHOWDEFAULT,
+    });
+    _ = gdi.UpdateWindow(win.handle);
 
-    win.* = .{
-        .title = title,
-        .class = class,
-        .icon = .{ .icon = .default },
-        .cursor = .{ .icon = .default },
-        .theme = options.theme,
-        .current_theme = current_theme,
-        .handle = hwnd,
-        .instance = instance,
-    };
+    win.theme = options.theme;
 
-    try win.setCursor(allocator, options.cursor);
-    try win.setIcon(allocator, options.icon);
+    try win.setCursor(options.cursor);
+    try win.setIcon(options.icon);
+
+    if (options.show == .fullscreen) {
+        win.fullscreen() catch {};
+    }
 
     return win;
 }
 
 pub fn deinit(self: *@This()) void {
-    windows_and_messaging.DestroyWindow(self.handle);
-    for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
+    _ = windows_and_messaging.DestroyWindow(self.handle);
+
+    // Revoke and free drag and drop target handler
+    if (self.drag_drop_handler) |h| {
+        _ = ole.RevokeDragDrop(self.handle);
+        h.deinit();
+    }
+
+    self.icon.deinit();
+    self.cursor.deinit();
+
+    // Unregister the class
+    _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
+
+    const parent = self.arena.child_allocator;
+    self.arena.deinit();
+    parent.destroy(self);
 }
 
 pub fn id(self: *const @This()) usize {
     return @intFromPtr(self.handle);
 }
 
-pub fn destroy(self: *const @This()) void {
-    _ = windows_and_messaging.DestroyWindow(self.handle);
-    _ = windows_and_messaging.UnregisterClassW(self.class, self.instance);
+/// Returns the pointers to the parent (HINSTANCE) and
+/// the target (HWND)
+pub fn handles(self: *const @This()) Win.Handles {
+    return .{
+        .parent = @ptrCast(self.instance.?),
+        .target = @ptrCast(self.handle),
+    };
+}
+
+pub fn bringToTop(self: *const @This()) void {
+    // Attempt to bring window to the top if it is rendered below other windows
+    _ = windows_and_messaging.SetWindowPos(self.handle, null, 0, 0, 0, 0, .{ .NOMOVE = 1, .NOSIZE = 1 });
+    _ = windows_and_messaging.SetForegroundWindow(self.handle);
+    _ = windows_and_messaging.BringWindowToTop(self.handle);
+}
+
+pub fn visibility(self: *const @This()) Win.Visibility {
+    if (self.fullscreen_state != null) return .fullscreen;
+
+    var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
+    placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
+
+    if (windows_and_messaging.GetWindowPlacement(self.handle, &placement) != 0) {
+        if (windows_and_messaging.IsWindowVisible(self.handle) == 0) return .hidden;
+        if (placement.showCmd == windows_and_messaging.SW_MINIMIZE) return .minimize;
+        if (placement.showCmd == windows_and_messaging.SW_MAXIMIZE) return .maximize;
+        if (placement.showCmd == windows_and_messaging.SW_SHOWDEFAULT) return .restore;
+    }
+
+    return .restore;
+}
+
+pub fn show(self: *const @This()) void {
+    showWindow(self.handle, .restore);
+}
+
+pub fn hide(self: *const @This()) void {
+    showWindow(self.handle, .hidden);
 }
 
 /// Minimize the window
 pub fn minimize(self: *const @This()) void {
-    show(self.handle, .minimize);
+    showWindow(self.handle, .minimize);
 }
 
 /// Maximize the window
 pub fn maximize(self: *const @This()) void {
-    show(self.handle, .maximize);
+    showWindow(self.handle, .maximize);
 }
 
 /// Restore the window to its default windowed state
-pub fn restore(self: *const @This()) void {
-    show(self.handle, .restore);
+pub fn restore(self: *@This()) void {
+    if (self.fullscreen_state) |old| {
+        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(old.style));
+        _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(old.ex_style));
+
+        _ = windows_and_messaging.SetWindowPos(
+            self.handle,
+            null,
+            old.client.left,
+            old.client.top,
+            old.client.right - old.client.left,
+            old.client.bottom - old.client.top,
+            windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
+        );
+
+        if (old.state == windows_and_messaging.SW_MAXIMIZE) {
+            _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_MAXIMIZE);
+        }
+
+        self.fullscreen_state = null;
+    } else {
+        showWindow(self.handle, .restore);
+    }
 }
 
 /// Get the windows current rect (bounding box)
@@ -338,63 +329,87 @@ pub fn getRect(self: *const @This()) Rect(u32) {
 }
 
 /// Set window title
-pub fn setTitle(self: *@This(), allocator: std.mem.Allocator, title: []const u8) !void {
+pub fn setTitle(self: *@This(), title: []const u8) !void {
+    const allocator = self.arena.allocator();
+
     allocator.free(self.title);
     self.title = try util.utf8ToUtf16Alloc(allocator, title);
     _ = windows_and_messaging.SetWindowTextW(self.handle, self.title);
 }
 
 /// Set window icon
-pub fn setIcon(self: *@This(), allocator: std.mem.Allocator, new_icon: ico.Icon) !void {
-    // Free old icon memory
-    switch (self.icon) {
-        .custom => |custom| allocator.free(custom),
-        else => {},
-    }
+pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
+    const allocator = self.arena.allocator();
+
+    self.icon.deinit();
 
     // Assign new icon value/memory
     switch (new_icon) {
-        .icon => |i| self.icon = .{ .icon = i },
-        .custom => |c| {
-            self.icon = .{ .custom = try util.utf8ToUtf16Alloc(allocator, c) };
+        .symbol => |i| self.icon = .{ .system = windows_and_messaging.LoadIconW(null, iconToResource(i)) },
+        .resource => |c| {
+            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c);
+            defer allocator.free(path);
+
+            self.icon = .{
+                .resource = @ptrCast(windows_and_messaging.LoadImageW(
+                    null,
+                    path.ptr,
+                    windows_and_messaging.IMAGE_ICON,
+                    0,
+                    0,
+                    windows_and_messaging.IMAGE_FLAGS{
+                        .DEFAULTSIZE = 1,
+                        .LOADFROMFILE = 1,
+                        .SHARED = 1,
+                        .LOADTRANSPARENT = 1,
+                    },
+                )),
+            };
         },
     }
-
-    const hIcon: usize = @intFromPtr(getHIcon(self.icon));
 
     // Send message to window to now render new icon
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_SMALL,
-        @intCast(hIcon),
+        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
     );
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_BIG,
-        @intCast(hIcon),
+        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
     );
 }
 
 /// Set window cursor
-pub fn setCursor(self: *@This(), allocator: std.mem.Allocator, new_cursor: csr.Cursor) !void {
-    // Free old cursor memory
-    switch (self.cursor) {
-        .custom => |c| allocator.free(c.path),
-        else => {},
-    }
+pub fn setCursor(self: *@This(), new_cursor: csr.Cursor) !void {
+    const allocator = self.arena.allocator();
+
+    self.cursor.deinit();
 
     // Assign new cursor value/memory
     switch (new_cursor) {
-        .icon => |i| self.cursor = .{ .icon = i },
-        .custom => |c| {
+        .symbol => |i| self.cursor = .{ .system = windows_and_messaging.LoadCursorW(null, cursorToResource(i)) },
+        .resource => |c| {
+            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
+            defer allocator.free(path);
+
             self.cursor = .{
-                .custom = .{
-                    .path = try util.utf8ToUtf16Alloc(allocator, c.path),
-                    .width = c.width,
-                    .height = c.height,
-                },
+                .resource = @ptrCast(windows_and_messaging.LoadImageW(
+                    null,
+                    path.ptr,
+                    windows_and_messaging.IMAGE_ICON,
+                    c.width,
+                    c.height,
+                    windows_and_messaging.IMAGE_FLAGS{
+                        .DEFAULTSIZE = 1,
+                        .LOADFROMFILE = 1,
+                        .SHARED = 1,
+                        .LOADTRANSPARENT = 1,
+                    },
+                )),
             };
         },
     }
@@ -405,19 +420,27 @@ pub fn setCursor(self: *@This(), allocator: std.mem.Allocator, new_cursor: csr.C
     if (currHandle) |hwnd| {
         if (hwnd == self.handle) {
             // Get HCURSOR pointer from icon
-            _ = windows_and_messaging.SetCursor(getHCursor(self.cursor));
+            _ = windows_and_messaging.SetCursor(self.cursor.hCursor());
         }
     }
 }
 
 /// Set the cursors position relative to the window
-pub fn setCursorPos(self: *@This(), x: i32, y: i32) void {
+pub fn setCursorPos(self: *@This(), x: u32, y: u32) void {
     var point = foundation.POINT{
-        .x = x,
-        .y = y,
+        .x = @intCast(x),
+        .y = @intCast(y),
     };
     _ = gdi.ClientToScreen(self.handle, &point);
     _ = windows_and_messaging.SetCursorPos(point.x, point.y);
+}
+
+/// Get whether the mouse is captured by the current window
+pub fn getCapture(self: *@This()) bool {
+    if (keyboard_and_mouse.GetCapture(self.handle)) |target| {
+        return target == self.handle;
+    }
+    return false;
 }
 
 /// Set the mouse to be captured by the window, or release it from the window
@@ -427,6 +450,61 @@ pub fn setCapture(self: *@This(), state: bool) void {
     } else {
         _ = keyboard_and_mouse.ReleaseCapture();
     }
+}
+
+/// Set or Unset the current window to be full screen.
+pub fn fullscreen(self: *@This()) !void {
+    if (self.fullscreen_state != null) return;
+
+    var style: windows_and_messaging.WINDOW_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE));
+    var ex_style: windows_and_messaging.WINDOW_EX_STYLE = @bitCast(windows_and_messaging.GetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE));
+
+    var rect: util.RECT = undefined;
+    _ = windows_and_messaging.GetWindowRect(self.handle, &rect);
+
+    var placement: windows_and_messaging.WINDOWPLACEMENT = undefined;
+    placement.length = @sizeOf(windows_and_messaging.WINDOWPLACEMENT);
+    _ = windows_and_messaging.GetWindowPlacement(self.handle, &placement);
+
+    self.fullscreen_state = .{ .client = rect, .style = style, .ex_style = ex_style, .state = placement.showCmd };
+
+    style.THICKFRAME = 0;
+    style.DLGFRAME = 0;
+    style.BORDER = 0;
+
+    ex_style.DLGMODALFRAME = 0;
+    ex_style.WINDOWEDGE = 0;
+    ex_style.CLIENTEDGE = 0;
+    ex_style.STATICEDGE = 0;
+
+    _ = windows_and_messaging.ShowWindow(self.handle, windows_and_messaging.SW_RESTORE);
+    _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_STYLE, @bitCast(style));
+    _ = windows_and_messaging.SetWindowLongW(self.handle, windows_and_messaging.GWL_EXSTYLE, @bitCast(ex_style));
+    var info: gdi.MONITORINFO = undefined;
+    info.cbSize = @sizeOf(gdi.MONITORINFO);
+    if (gdi.GetMonitorInfoW(gdi.MonitorFromWindow(self.handle, gdi.MONITOR_DEFAULTTONEAREST), &info) == zig.TRUE) {
+        _ = windows_and_messaging.SetWindowPos(
+            self.handle,
+            windows_and_messaging.HWND_TOPMOST,
+            info.rcMonitor.left,
+            info.rcMonitor.top,
+            info.rcMonitor.right - info.rcMonitor.left,
+            info.rcMonitor.bottom - info.rcMonitor.top,
+            windows_and_messaging.SET_WINDOW_POS_FLAGS{ .NOZORDER = 1, .NOACTIVATE = 1, .DRAWFRAME = 1 },
+        );
+    }
+}
+
+/// Get the current area that is used for rendering
+pub fn getClientRect(self: *@This()) Rect(u32) {
+    var area: util.RECT = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 };
+    _ = windows_and_messaging.GetClientRect(self.handle, &area);
+    return .{
+        .x = @as(u32, @bitCast(area.left)),
+        .y = @as(u32, @bitCast(area.top)),
+        .width = @as(u32, @bitCast(area.right - area.left)),
+        .height = @as(u32, @bitCast(area.bottom - area.top)),
+    };
 }
 
 pub fn setTheme(self: *@This(), theme: Win.Theme) void {
@@ -447,13 +525,15 @@ pub fn setCurrentTheme(self: *@This(), theme: Win.Theme) void {
             self.current_theme = .dark;
             _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
         },
-        .system => if (util.isLightTheme() catch false) {
-            self.current_theme = .light;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
-        } else {
-            self.current_theme = .dark;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
-        }
+        .system => if (self.ui_settings.GetColorValue(.Foreground)) |color| {
+            if (util.isLight(color)) {
+                self.current_theme = .light;
+                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
+            } else {
+                self.current_theme = .dark;
+                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
+            }
+        } else |_| {},
     }
 }
 
@@ -465,49 +545,49 @@ pub fn getTheme(self: *@This()) Win.Theme {
     return self.theme;
 }
 
-pub fn setMenu(self: *@This(), allocator: std.mem.Allocator, new_menu: ?[]const MenuItem) !void {
-    for (self.menus.items) |m| _ = windows_and_messaging.DestroyMenu(m);
-    for (self.itemToMenu.values()) |v| switch (v.payload) {
-        .toggle => |t| allocator.free(t.label),
-        .action => |a| allocator.free(a.label),
-        .radio => |r| allocator.free(r.label),
-    };
-    self.menus.clearAndFree(allocator);
-    self.itemToMenu.clearAndFree(allocator);
+pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
+    const allocator = self.arena.allocator();
 
-    var rootMenu: ?HMENU = null;
-    if (new_menu) |userMenu| {
-        if (userMenu.len > 0) {
-            rootMenu = windows_and_messaging.CreateMenu().?;
-            try self.menus.append(allocator, rootMenu.?);
-
-            var count: usize = 0;
-            var context = MenuContext{
-                .allocator = allocator,
-                .current = rootMenu.?,
-                .menus = &self.menus,
-                .itemToMenu = &self.itemToMenu,
-                .count = &count,
-            };
-
-            try context.appendMenu(userMenu);
-
-            _ = windows_and_messaging.SetMenu(self.handle, rootMenu);
-            _ = windows_and_messaging.DrawMenuBar(self.handle);
-            return;
-        }
+    if (self.drag_drop_handler) |handler| {
+        handler.deinit();
+        self.drag_drop = null;
+        const hr = ole.RevokeDragDrop(self.handle);
+        if (hr != 0) try windows.core.hresultToError(hr);
+        ole.OleUninitialize();
     }
-    _ = windows_and_messaging.SetMenu(self.handle, null);
-    _ = windows_and_messaging.DrawMenuBar(self.handle);
+
+    if (context) |ctx| {
+        var hr = ole.OleInitialize(null);
+        if (hr != 0) try windows.core.hresultToError(hr);
+
+        self.drag_drop = dnd.DropTarget.init(allocator, ctx);
+        self.drag_drop_handler = try dnd_win.DropTargetHandler.init(self.handle, &self.drag_drop.?);
+        errdefer self.drag_drop_handler.?.deinit();
+
+        hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
+        if (hr != 0) try windows.core.hresultToError(hr);
+    }
 }
 
-const ImmersiveColorSet: [:0]const u8 = "ImmersiveColorSet\x00";
+fn showWindow(hwnd: ?foundation.HWND, state: Win.Visibility) void {
+    if (hwnd) |h| {
+        _ = windows_and_messaging.ShowWindow(h, switch (state) {
+            .maximize => windows_and_messaging.SW_SHOWMAXIMIZED,
+            .minimize => windows_and_messaging.SW_SHOWMINIMIZED,
+            .restore => windows_and_messaging.SW_RESTORE,
+            .hidden => windows_and_messaging.SW_HIDE,
+            else => return,
+        });
+        _ = gdi.UpdateWindow(h);
+    }
+}
+
 fn wndProc(
     hwnd: foundation.HWND,
     uMsg: u32,
     wparam: foundation.WPARAM,
     lparam: foundation.LPARAM,
-) callconv(WINAPI) foundation.LRESULT {
+) callconv(.winapi) foundation.LRESULT {
     if (uMsg == windows_and_messaging.WM_CREATE) {
         // Get CREATESTRUCTW pointer from lparam
         const lpptr: usize = @intCast(lparam);
@@ -546,54 +626,4 @@ fn wndProc(
     }
 
     return 0;
-}
-
-pub fn getHCursor(cursor: Cursor) ?windows_and_messaging.HCURSOR {
-    return switch (cursor) {
-        .icon => |i| windows_and_messaging.LoadCursorW(null, cursorToResource(i)),
-        .custom => |c| @ptrCast(windows_and_messaging.LoadImageW(
-            null,
-            c.path.ptr,
-            windows_and_messaging.IMAGE_ICON,
-            c.width,
-            c.height,
-            windows_and_messaging.IMAGE_FLAGS{
-                .DEFAULTSIZE = 1,
-                .LOADFROMFILE = 1,
-                .SHARED = 1,
-                .LOADTRANSPARENT = 1,
-            },
-        )),
-    };
-}
-
-fn getHIcon(icon: Icon) ?windows_and_messaging.HICON {
-    return switch (icon) {
-        .icon => |i| windows_and_messaging.LoadIconW(null, iconToResource(i)),
-        .custom => |c| @ptrCast(windows_and_messaging.LoadImageW(
-            null,
-            c.ptr,
-            windows_and_messaging.IMAGE_ICON,
-            0,
-            0,
-            windows_and_messaging.IMAGE_FLAGS{
-                .DEFAULTSIZE = 1,
-                .LOADFROMFILE = 1,
-                .SHARED = 1,
-                .LOADTRANSPARENT = 1,
-            },
-        )),
-    };
-}
-
-fn show(hwnd: ?foundation.HWND, state: Win.Show) void {
-    if (hwnd) |h| {
-        _ = windows_and_messaging.ShowWindow(h, switch (state) {
-            .maximize => windows_and_messaging.SW_SHOWMAXIMIZED,
-            .minimize => windows_and_messaging.SW_SHOWMINIMIZED,
-            .restore => windows_and_messaging.SW_RESTORE,
-            else => return,
-        });
-        _ = gdi.UpdateWindow(h);
-    }
 }
