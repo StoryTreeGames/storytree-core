@@ -4,7 +4,6 @@ const std = @import("std");
 
 const windows = @import("windows");
 const win32 = windows.win32;
-const UISettings = windows.UI.ViewManagement.UISettings;
 const ole = win32.system.ole;
 const foundation = win32.foundation;
 const windows_and_messaging = win32.ui.windows_and_messaging;
@@ -32,6 +31,7 @@ const EventLoop = @import("../event.zig").EventLoop;
 const ico = @import("../icon.zig");
 const Rect = @import("../root.zig").Rect;
 const Win = @import("../window.zig");
+const dark_mode = @import("dark_mode.zig");
 const cursorToResource = @import("cursor.zig").cursorToResource;
 const dnd_win = @import("drag_drop.zig");
 const iconToResource = @import("icon.zig").iconToResource;
@@ -88,8 +88,9 @@ instance: ?foundation.HINSTANCE = null,
 icon: Icon = .{ .system = null },
 cursor: Cursor = .{ .system = null },
 
-theme: Win.Theme = .system,
-current_theme: Win.Theme = .dark,
+theme: Win.Theme = .light,
+preferred_theme: ?Win.Theme = null,
+acrylic: bool = false,
 
 fullscreen_state: ?struct {
     client: util.RECT,
@@ -100,9 +101,6 @@ fullscreen_state: ?struct {
 
 drag_drop: ?dnd.DropTarget = null,
 drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
-
-/// Reference to the event loops UISettings instance
-ui_settings: *UISettings,
 
 /// Create a new window
 ///
@@ -121,7 +119,6 @@ pub fn init(
 
     win.* = .{
         .arena = std.heap.ArenaAllocator.init(allocator),
-        .ui_settings = event_loop.ui_settings,
     };
     const allo = win.arena.allocator();
 
@@ -140,7 +137,7 @@ pub fn init(
 
         .hIcon = null,
         .hCursor = null,
-        .hbrBackground = gdi.GetStockObject(gdi.WHITE_BRUSH),
+        .hbrBackground = gdi.GetStockObject(if (options.acrylic) gdi.HOLLOW_BRUSH else gdi.WHITE_BRUSH),
         .lpszMenuName = null,
 
         .hInstance = win.instance,
@@ -166,7 +163,7 @@ pub fn init(
     };
 
     win.handle = windows_and_messaging.CreateWindowExW(
-        windows_and_messaging.WINDOW_EX_STYLE{},
+        windows_and_messaging.WINDOW_EX_STYLE{ .COMPOSITED = 1 },
         win.class.ptr,
         win.title.ptr,
         window_style, // style
@@ -180,21 +177,23 @@ pub fn init(
         @ptrCast(event_loop), // WM_CREATE lpParam
     ) orelse return error.SystemCreateWindow;
 
-    var value: foundation.BOOL = zig.TRUE;
-    win.current_theme = .dark;
-    switch (options.theme) {
-        .light => {
-            value = zig.FALSE;
-            win.current_theme = .light;
-        },
-        .system => if (util.isLight(try win.ui_settings.GetColorValue(.Foreground))) {
-            win.current_theme = .light;
-            value = zig.FALSE;
-        } else {},
-        else => {},
+    win.preferred_theme = options.theme;
+    win.setTheme(options.theme);
+
+    if (options.acrylic) {
+        win.acrylic = true;
+
+        const DWM_SYSTEMBACKDROP_TYPE = enum (i32) {
+            AUTO = 0,
+            NONE = 1,
+            MAINWINDOW = 2,      // Mica
+            TRANSIENTWINDOW = 3, // Acrylic
+            TABBEDWINDOW = 4     // Mica Alt
+        };
+        var backdrop = DWM_SYSTEMBACKDROP_TYPE.TRANSIENTWINDOW;
+        _ = dwm.DwmSetWindowAttribute(win.handle, @enumFromInt(38), &backdrop, @sizeOf(DWM_SYSTEMBACKDROP_TYPE));
     }
 
-    _ = dwm.DwmSetWindowAttribute(win.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &value, @sizeOf(foundation.BOOL));
     _ = windows_and_messaging.ShowWindow(win.handle, switch (options.show) {
         .hidden => windows_and_messaging.SW_HIDE,
         .minimize => windows_and_messaging.SW_MINIMIZE,
@@ -202,8 +201,6 @@ pub fn init(
         else => windows_and_messaging.SW_SHOWDEFAULT,
     });
     _ = gdi.UpdateWindow(win.handle);
-
-    win.theme = options.theme;
 
     try win.setCursor(options.cursor);
     try win.setIcon(options.icon);
@@ -507,38 +504,9 @@ pub fn getClientRect(self: *@This()) Rect(u32) {
     };
 }
 
-pub fn setTheme(self: *@This(), theme: Win.Theme) void {
+pub fn setTheme(self: *@This(), theme: ?Win.Theme) void {
     if (theme == self.theme) return;
-    self.theme = theme;
-
-    self.setCurrentTheme(theme);
-}
-
-pub fn setCurrentTheme(self: *@This(), theme: Win.Theme) void {
-    if (theme == self.current_theme) return;
-    switch (theme) {
-        .light => {
-            self.current_theme = .light;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
-        },
-        .dark => {
-            self.current_theme = .dark;
-            _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
-        },
-        .system => if (self.ui_settings.GetColorValue(.Foreground)) |color| {
-            if (util.isLight(color)) {
-                self.current_theme = .light;
-                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.FALSE, @sizeOf(foundation.BOOL));
-            } else {
-                self.current_theme = .dark;
-                _ = dwm.DwmSetWindowAttribute(self.handle, dwm.DWMWA_USE_IMMERSIVE_DARK_MODE, &zig.TRUE, @sizeOf(foundation.BOOL));
-            }
-        } else |_| {},
-    }
-}
-
-pub fn getCurrentTheme(self: *@This()) Win.Theme {
-    return self.current_theme;
+    self.theme = dark_mode.tryTheme(self.handle, theme, false);
 }
 
 pub fn getTheme(self: *@This()) Win.Theme {
@@ -598,6 +566,14 @@ fn wndProc(
             // Cast from anyopaque to an expected EventLoop
             // this includes casting the pointer alignment
             const event_loop: *EventLoop = @ptrCast(@alignCast(create_params));
+
+            if (event_loop.windows.get(@intFromPtr(hwnd))) |win| {
+                if (win.acrylic) {
+                    util.applyLegacyBlur(hwnd);
+                    _ = gdi.InvalidateRect(hwnd, null, zig.FALSE);
+                }
+            }
+
             // Cast pointer to isize for setting data
             const long_ptr: usize = @intFromPtr(event_loop);
             const ptr: isize = @intCast(long_ptr);

@@ -14,7 +14,6 @@ pub const Impl = switch (@import("builtin").os.tag) {
 pub const Theme = enum {
     light,
     dark,
-    system,
 
     pub fn isLight(self: *const @This()) bool {
         return self.* == .light;
@@ -46,7 +45,10 @@ pub const Options = struct {
     cursor: Cursor = .Default,
 
     // Linux does not have reactive theme, this will be added at a later date with DBus support.
-    theme: Theme = .system,
+    theme: ?Theme = null,
+
+    // Currently only supported on windows. All other platforms are NOOP
+    acrylic: bool = false,
 
     /// Has no affect on linux.
     ///

@@ -156,6 +156,6 @@ pub fn addExample(
         ecmd.addArgs(args);
     }
 
-    const estep = b.step("example-" ++ example.name, "Run example-" ++ example.name);
+    const estep = b.step("run-" ++ example.name, "Run example " ++ example.name);
     estep.dependOn(&ecmd.step);
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const input = @import("input.zig");
 
 const Window = @import("window.zig").Window;
+const Theme = @import("window.zig").Theme;
 const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
 const MouseButton = input.MouseButton;
@@ -110,6 +111,8 @@ pub const WindowEvent = union(enum) {
     visibility: Visibility,
     /// Menu item selected
     menu: MenuEvent,
+    /// Window theme changed
+    theme: Theme,
 };
 
 pub const MenuEvent = struct {
@@ -119,7 +122,6 @@ pub const MenuEvent = struct {
     pub const Kind = enum { window, taskbar };
 };
 
-pub const ThemeEvent = enum { light, dark };
 pub const UserEvent = struct {
     id: u32,
     payload: u32,
@@ -136,7 +138,6 @@ pub const UserEvent = struct {
     }
 };
 pub const Event = union(enum) {
-    theme: ThemeEvent,
     window: struct {
         target: *Window,
         event: WindowEvent,
@@ -145,7 +146,6 @@ pub const Event = union(enum) {
 };
 
 pub const QueuedEvent = union(enum) {
-    theme: ThemeEvent,
     destroy: usize,
     user: UserEvent,
     window: struct {

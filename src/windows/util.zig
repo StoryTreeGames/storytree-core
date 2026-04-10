@@ -89,3 +89,34 @@ pub fn createUIDClass(allocator: std.mem.Allocator) ![:0]u16 {
 
     return try utf8ToUtf16Alloc(allocator, temp);
 }
+
+pub fn applyLegacyBlur(hwnd: HWND) void {
+    std.debug.print("Apply Legacy Blur\n", .{});
+    var rc: win32.foundation.RECT = undefined;
+    _ = win32.ui.windows_and_messaging.GetClientRect(hwnd, &rc);
+
+    const menuH = if (win32.ui.windows_and_messaging.GetMenu(hwnd)) |_|
+        win32.ui.windows_and_messaging.GetSystemMetrics(win32.ui.windows_and_messaging.SM_CYMENU)
+    else
+        0;
+
+    const rgn = win32.graphics.gdi.CreateRectRgn(rc.left, rc.top + menuH, rc.right, rc.bottom + menuH);
+
+    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
+        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE | win32.graphics.dwm.DWM_BB_BLURREGION,
+        .fEnable = win32.zig.TRUE,
+        .hRgnBlur = rgn,
+        .fTransitionOnMaximized = win32.zig.FALSE
+    };
+    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
+    _ = win32.graphics.gdi.DeleteObject(rgn);
+}
+pub fn disableLegacyBlur(hwnd: HWND) void {
+    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
+        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE,
+        .fEnable = win32.zig.FALSE,
+        .hRgnBlur = null,
+        .fTransitionOnMaximized = win32.zig.FALSE
+    };
+    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
+}
