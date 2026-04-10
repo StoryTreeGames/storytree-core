@@ -496,9 +496,15 @@ pub fn fullscreen(self: *@This()) !void {
 pub fn getClientRect(self: *@This()) Rect(u32) {
     var area: util.RECT = .{ .left = 0, .right = 0, .top = 0, .bottom = 0 };
     _ = windows_and_messaging.GetClientRect(self.handle, &area);
+
+    const menuH = if (win32.ui.windows_and_messaging.GetMenu(self.handle)) |_|
+        win32.ui.windows_and_messaging.GetSystemMetrics(win32.ui.windows_and_messaging.SM_CYMENU)
+    else
+        0;
+
     return .{
         .x = @as(u32, @bitCast(area.left)),
-        .y = @as(u32, @bitCast(area.top)),
+        .y = @as(u32, @bitCast(area.top + menuH)),
         .width = @as(u32, @bitCast(area.right - area.left)),
         .height = @as(u32, @bitCast(area.bottom - area.top)),
     };
