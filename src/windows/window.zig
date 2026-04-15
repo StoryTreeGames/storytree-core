@@ -1,8 +1,6 @@
-// TODO: Do owner drawn menu bar so that the background and text colors can match the caption/title bar
-
 const std = @import("std");
-
 const windows = @import("windows");
+
 const win32 = windows.win32;
 const ole = win32.system.ole;
 const foundation = win32.foundation;
@@ -13,9 +11,7 @@ const gdi = win32.graphics.gdi;
 const zig = win32.zig;
 const shell = win32.ui.shell;
 const dwm = win32.graphics.dwm;
-const DestroyIcon = windows_and_messaging.DestroyIcon;
-const DestroyCursor = windows_and_messaging.DestroyCursor;
-const Shell_NotifyIconW = shell.Shell_NotifyIconW;
+
 const NIM_ADD = shell.NIM_ADD;
 const NIM_MODIFY = shell.NIM_MODIFY;
 const NIM_DELETE = shell.NIM_DELETE;
@@ -24,20 +20,19 @@ const NOTIFYICONDATAW = shell.NOTIFYICONDATAW;
 const HICON = windows_and_messaging.HICON;
 const HCURSOR = windows_and_messaging.HCURSOR;
 const HWND = foundation.HWND;
+const DestroyIcon = windows_and_messaging.DestroyIcon;
+const DestroyCursor = windows_and_messaging.DestroyCursor;
+const Shell_NotifyIconW = shell.Shell_NotifyIconW;
 
 const csr = @import("../cursor.zig");
-const dnd = @import("../drag_drop.zig");
-const EventLoop = @import("../event.zig").EventLoop;
 const ico = @import("../icon.zig");
 const Rect = @import("../root.zig").Rect;
 const Win = @import("../window.zig");
 const dark_mode = @import("dark_mode.zig");
-const cursorToResource = @import("cursor.zig").cursorToResource;
-const dnd_win = @import("drag_drop.zig");
-const iconToResource = @import("icon.zig").iconToResource;
 const util = @import("util.zig");
-
-const ID_TRAY = 1001;
+const EventLoop = @import("../event.zig").EventLoop;
+const cursorToResource = @import("cursor.zig").cursorToResource;
+const iconToResource = @import("icon.zig").iconToResource;
 
 const Icon = union(enum) {
     system: ?HICON,
@@ -99,16 +94,8 @@ fullscreen_state: ?struct {
     state: windows_and_messaging.SHOW_WINDOW_CMD,
 } = null,
 
-drag_drop: ?dnd.DropTarget = null,
-drag_drop_handler: ?*dnd_win.DropTargetHandler = null,
+mouse_over: bool = false,
 
-/// Create a new window
-///
-/// - @param `allocator` Allocates the wide strings for the window. Must live longer than the window
-/// - @param `event_loop` Event handler and driver for the window
-/// - @param `options` Options on how the window should look and behave when it is created
-///
-/// @returns `Window` An instance of a window. Contains methods to manipulate the window.
 pub fn init(
     allocator: std.mem.Allocator,
     event_loop: *EventLoop,
@@ -192,6 +179,9 @@ pub fn init(
         };
         var backdrop = DWM_SYSTEMBACKDROP_TYPE.TRANSIENTWINDOW;
         _ = dwm.DwmSetWindowAttribute(win.handle, @enumFromInt(38), &backdrop, @sizeOf(DWM_SYSTEMBACKDROP_TYPE));
+
+        util.applyLegacyBlur(win.handle);
+        _ = gdi.InvalidateRect(win.handle, null, zig.FALSE);
     }
 
     _ = windows_and_messaging.ShowWindow(win.handle, switch (options.show) {
@@ -214,12 +204,6 @@ pub fn init(
 
 pub fn deinit(self: *@This()) void {
     _ = windows_and_messaging.DestroyWindow(self.handle);
-
-    // Revoke and free drag and drop target handler
-    if (self.drag_drop_handler) |h| {
-        _ = ole.RevokeDragDrop(self.handle);
-        h.deinit();
-    }
 
     self.icon.deinit();
     self.cursor.deinit();
@@ -381,34 +365,38 @@ pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
 }
 
 /// Set window cursor
-pub fn setCursor(self: *@This(), new_cursor: csr.Cursor) !void {
+pub fn setCursor(self: *@This(), shape: ?csr.Cursor) !void {
     const allocator = self.arena.allocator();
 
     self.cursor.deinit();
 
     // Assign new cursor value/memory
-    switch (new_cursor) {
-        .symbol => |i| self.cursor = .{ .system = windows_and_messaging.LoadCursorW(null, cursorToResource(i)) },
-        .resource => |c| {
-            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
-            defer allocator.free(path);
+    if (shape) |cs| {
+        switch (cs) {
+            .symbol => |i| self.cursor = .{ .system = windows_and_messaging.LoadCursorW(null, cursorToResource(i)) },
+            .resource => |c| {
+                const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
+                defer allocator.free(path);
 
-            self.cursor = .{
-                .resource = @ptrCast(windows_and_messaging.LoadImageW(
-                    null,
-                    path.ptr,
-                    windows_and_messaging.IMAGE_ICON,
-                    c.width,
-                    c.height,
-                    windows_and_messaging.IMAGE_FLAGS{
-                        .DEFAULTSIZE = 1,
-                        .LOADFROMFILE = 1,
-                        .SHARED = 1,
-                        .LOADTRANSPARENT = 1,
-                    },
-                )),
-            };
-        },
+                self.cursor = .{
+                    .resource = @ptrCast(windows_and_messaging.LoadImageW(
+                        null,
+                        path.ptr,
+                        windows_and_messaging.IMAGE_ICON,
+                        c.width,
+                        c.height,
+                        windows_and_messaging.IMAGE_FLAGS{
+                            .DEFAULTSIZE = 1,
+                            .LOADFROMFILE = 1,
+                            .SHARED = 1,
+                            .LOADTRANSPARENT = 1,
+                        },
+                    )),
+                };
+            },
+        }
+    } else {
+        self.cursor = .{ .system = null };
     }
 
     // If the mouse is focused on the current window
@@ -517,30 +505,6 @@ pub fn setTheme(self: *@This(), theme: ?Win.Theme) void {
 
 pub fn getTheme(self: *@This()) Win.Theme {
     return self.theme;
-}
-
-pub fn setDragDrop(self: *@This(), context: ?dnd.DropTarget.Context) !void {
-    const allocator = self.arena.allocator();
-
-    if (self.drag_drop_handler) |handler| {
-        handler.deinit();
-        self.drag_drop = null;
-        const hr = ole.RevokeDragDrop(self.handle);
-        if (hr != 0) try windows.core.hresultToError(hr);
-        ole.OleUninitialize();
-    }
-
-    if (context) |ctx| {
-        var hr = ole.OleInitialize(null);
-        if (hr != 0) try windows.core.hresultToError(hr);
-
-        self.drag_drop = dnd.DropTarget.init(allocator, ctx);
-        self.drag_drop_handler = try dnd_win.DropTargetHandler.init(self.handle, &self.drag_drop.?);
-        errdefer self.drag_drop_handler.?.deinit();
-
-        hr = ole.RegisterDragDrop(self.handle, @ptrCast(self.drag_drop_handler.?));
-        if (hr != 0) try windows.core.hresultToError(hr);
-    }
 }
 
 fn showWindow(hwnd: ?foundation.HWND, state: Win.Visibility) void {

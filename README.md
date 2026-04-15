@@ -21,7 +21,9 @@ Hopefully this library will remain generic enough to be able to be used with mos
 ## TODO
 
 - [x] Move Dialog module to individual repo
+- [x] Move Drag & Drop to individual repo
 - [x] Move Notification module to individual repo
+
 - [x] Move System Tray module to individual repo
 - [x] Move Window Menu module to individual repo
 - [x] Move Windows Taskbar/Toolbar to individual repo
@@ -59,7 +61,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Resize
     - [ ] Repaint
     - [x] Theme Change
-    - [x] Drag Drop
     - [ ] Gamepad
   - [-] Query
     - [x] Keys
@@ -101,11 +102,11 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [x] Keyboard
     - [-] Mouse
       - [x] Normal mouse input
-      - [ ] Raw Mouse Input
+      - [ ] Raw Mouse Input: Should be default
     - [x] Resize
     - [ ] Repaint
-    - [ ] Theme Change
-    - [ ] Drag Drop
+    - [x] Theme Change
+        - Doesn't exist on client side
     - [ ] Gamepad
   - [ ] Query
     - [ ] Keys
@@ -144,7 +145,6 @@ Hopefully this library will remain generic enough to be able to be used with mos
     - [ ] Resize
     - [ ] Repaint
     - [ ] Theme Change
-    - [ ] Drag Drop
   - [ ] Query
     - [ ] Keys
     - [ ] Mouse

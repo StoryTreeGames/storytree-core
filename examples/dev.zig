@@ -5,6 +5,7 @@ const TargetTag = @import("builtin").target.os.tag;
 const zinit = @import("zinit");
 const event = zinit.event;
 const input = zinit.input;
+const cursor = zinit.cursor;
 
 const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
@@ -129,7 +130,7 @@ pub fn main() !void {
     const event_loop = try EventLoop.init(allocator);
     defer event_loop.deinit();
 
-    try event_loop.setAppId("com.storytree.core");
+    try event_loop.setAppId("zinit.dev.example");
 
     // Custom debug output of window
     std.debug.print(
@@ -153,6 +154,9 @@ pub fn main() !void {
         .height = 600,
         .icon = .custom("assets\\icon.ico"),
     });
+
+    cursor.showCursor(false);
+    defer cursor.showCursor(true);
 
     while (event_loop.isActive()) {
         try event_loop.wait();

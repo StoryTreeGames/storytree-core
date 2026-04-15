@@ -6,10 +6,10 @@ const xdg = wayland.client.xdg;
 const zxdg = wayland.client.zxdg;
 
 const Window = @import("window.zig");
-const WindowOptions = @import("../window.zig").Options;
-const EventQueue = @import("../event.zig").EventQueue;
+const WindowOptions = @import("../../window.zig").Options;
+const EventQueue = @import("../../event.zig").EventQueue;
+const Event = @import("../../event.zig").Event;
 const Context = @import("context.zig");
-const Event = @import("../event.zig").Event;
 
 arena: std.heap.ArenaAllocator,
 

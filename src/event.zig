@@ -5,6 +5,7 @@ const Window = @import("window.zig").Window;
 const Theme = @import("window.zig").Theme;
 const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
+const VirtualKey = input.VirtualKey;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
 
@@ -90,6 +91,22 @@ pub const SizeEvent = struct {
     height: u32,
 };
 
+pub const DeviceEvent = union(enum) {
+    added,
+    removed,
+    mouse_delta: struct { x: i32 = 0, y: i32 = 0  },
+    mouse_wheel: struct { horizontal: f32 = 0.0, vertical: f32 = 0.0  },
+    delta: struct { axis: u32, value: i32 },
+    button: struct {
+        id: usize,
+        state: ButtonState,
+    },
+    key: struct {
+        key: VirtualKey,
+        state: ButtonState,
+    }
+};
+
 pub const WindowEvent = union(enum) {
     /// Close request
     close,
@@ -101,10 +118,12 @@ pub const WindowEvent = union(enum) {
     key: KeyEvent,
     /// Mouse button input event post
     mouse: MouseEvent,
-    /// Mouse move event post
+    /// Mouse move event position
     move: Point(i32),
-    /// Mouse move event post
-    raw: Point(i32),
+    /// Mouse enter
+    enter: void,
+    /// Mouse leave
+    leave: void,
     /// Mouse scroll event post
     scroll: ScrollEvent,
     /// Change in window visibility
@@ -137,10 +156,15 @@ pub const UserEvent = struct {
         };
     }
 };
+
 pub const Event = union(enum) {
     window: struct {
         target: *Window,
         event: WindowEvent,
+    },
+    device: struct {
+        id: usize,
+        event: DeviceEvent,
     },
     user: UserEvent
 };
@@ -148,6 +172,10 @@ pub const Event = union(enum) {
 pub const QueuedEvent = union(enum) {
     destroy: usize,
     user: UserEvent,
+    device: struct {
+        id: usize,
+        event: DeviceEvent,
+    },
     window: struct {
         target: usize,
         event: WindowEvent,
@@ -261,6 +289,7 @@ pub const EventQueue = LinkedQueue(QueuedEvent);
 
 pub const EventLoop = switch (@import("builtin").target.os.tag) {
     .windows => @import("windows/event.zig"),
-    .linux => @import("linux/event.zig"),
+    // TODO: Make a linux wrapper that will use wayland and fallback to x11
+    .linux => @import("linux/wayland/event.zig"),
     else => @compileError("unsupported platform"),
 };

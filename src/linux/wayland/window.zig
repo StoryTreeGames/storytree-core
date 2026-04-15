@@ -6,17 +6,17 @@ const xdg = wayland.client.xdg;
 const zxdg = wayland.client.zxdg;
 const wp = wayland.client.wp;
 
-const Options = @import("../window.zig").Options;
-const Handles = @import("../window.zig").Handles;
-const Visibility = @import("../window.zig").Visibility;
+const Options = @import("../../window.zig").Options;
+const Handles = @import("../../window.zig").Handles;
+const Visibility = @import("../../window.zig").Visibility;
 const Context = @import("context.zig");
-const EventLoop = @import("../event.zig").EventLoop;
-const Event = @import("../event.zig").Event;
-const QueuedEvent = @import("../event.zig").QueuedEvent;
-const EventQueue = @import("../event.zig").EventQueue;
-const Symbol = @import("../cursor.zig").Symbol;
+const EventLoop = @import("../../event.zig").EventLoop;
+const Event = @import("../../event.zig").Event;
+const QueuedEvent = @import("../../event.zig").QueuedEvent;
+const EventQueue = @import("../../event.zig").EventQueue;
+const Symbol = @import("../../cursor.zig").Symbol;
 
-const Rect = @import("../root.zig").Rect;
+const Rect = @import("../../root.zig").Rect;
 
 const WindowState = packed struct(u4) {
     maximized: bool = false,

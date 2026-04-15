@@ -76,6 +76,11 @@ pub fn getCursorPos() Point(u32) {
     };
 }
 
+/// Set the cursor position relative to the screen
+pub fn setCursorPos(x: i32, y: i32) void {
+    _ = wam.SetCursorPos(x, y);
+}
+
 /// Get whether the mouse button is down
 pub fn getKeyState(mouse_button: input.MouseButton) bool {
     const value: u16 = switch (mouse_button) {

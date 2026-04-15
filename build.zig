@@ -7,7 +7,6 @@ const EXAMPLES = "examples";
 
 const examples = [_]Example{
     .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
-    .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
     .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
     .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
 };

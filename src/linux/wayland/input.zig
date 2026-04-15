@@ -1,5 +1,5 @@
 const kam = @import("windows").win32.ui.input.keyboard_and_mouse;
-const VirtualKey = @import("../input.zig").VirtualKey;
+const VirtualKey = @import("../../input.zig").VirtualKey;
 
 const xkbcommon = @cImport({
     @cInclude("xkbcommon/xkbcommon.h");
@@ -241,6 +241,10 @@ pub fn codeToVirtualKey(code: u32, keycode: u32) ?VirtualKey {
         else => null,
     };
 }
+
+// TODO: Add key state inspection with the event_loop/window seat managed state.
+// It will maintain all keys along with their state over time, then the user can
+// query for the current state. This will also be how the gamepad works.
 
 // /// Get whether the key is down
 // pub fn getKeyState(key: anytype) bool {
