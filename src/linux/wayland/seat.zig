@@ -1,13 +1,7 @@
 const std = @import("std");
 
-const wl_cursor = @cImport({
-    @cInclude("wayland-cursor.h");
-});
-
-const xkbcommon = @cImport({
-    @cInclude("xkbcommon/xkbcommon.h");
-    @cInclude("xkbcommon/xkbcommon-compose.h");
-});
+const wl_cursor = @import("wayland_cursor");
+const xkbcommon = @import("xkbcommon");
 
 const wayland = @import("wayland");
 const wl = wayland.client.wl;

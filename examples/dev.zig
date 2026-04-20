@@ -122,12 +122,11 @@ const State = struct {
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    const io = init.io;
 
-    const event_loop = try EventLoop.init(allocator);
+    const event_loop = try EventLoop.init(io, gpa);
     defer event_loop.deinit();
 
     try event_loop.setAppId("zinit.dev.example");
@@ -144,19 +143,16 @@ pub fn main() !void {
         \\
     , .{});
 
-    var state: State = .{ .allocator = allocator };
+    var state: State = .{ .allocator = gpa };
 
-    const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
-    defer allocator.free(title);
+    const title = try std.fmt.allocPrint(gpa, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
+    defer gpa.free(title);
     _ = try event_loop.createWindow(.{
         .title = title,
         .width = 800,
         .height = 600,
         .icon = .custom("assets\\icon.ico"),
     });
-
-    cursor.showCursor(false);
-    defer cursor.showCursor(true);
 
     while (event_loop.isActive()) {
         try event_loop.wait();

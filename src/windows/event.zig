@@ -96,6 +96,7 @@ const CustomEventHandler = struct {
     }
 };
 
+io: std.Io,
 arena: std.heap.ArenaAllocator,
 
 is_exit: bool,
@@ -124,12 +125,13 @@ fn handleGamepadRemoved(state: ?*anyopaque, sender: *IInspectable, args: *Gamepa
     std.debug.print("Gamepad Removed: {d}", .{@intFromPtr(args)});
 }
 
-pub fn init(allocator: std.mem.Allocator) !*@This() {
+pub fn init(io: std.Io, allocator: std.mem.Allocator) !*@This() {
     const self = try allocator.create(@This());
     errdefer allocator.destroy(self);
 
+    self.io = io;
     self.arena = std.heap.ArenaAllocator.init(allocator);
-    self.queue = .{ .allocator = self.arena.allocator() };
+    self.queue = .init(io, self.arena.allocator());
     self.windows = .empty;
 
     self.msg_target = try createMsgTargetWindow(self);
@@ -461,7 +463,7 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
 
     switch (message) {
         // Request to close the window
-        windows_and_messaging.WM_ERASEBKGND => return true,
+        windows_and_messaging.WM_ERASEBKGND => return win.acrylic,
         windows_and_messaging.WM_PAINT => {
             var ps: graphics.gdi.PAINTSTRUCT = undefined;
             _ = graphics.gdi.BeginPaint(hwnd, &ps);
@@ -478,7 +480,6 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
             }
         },
         windows_and_messaging.WM_CLOSE => {
-            std.debug.print("CLOSE Event\n", .{});
             try queue.append(.{ .window = .{ .target = @intFromPtr(hwnd), .event = .close } });
             return true;
         },

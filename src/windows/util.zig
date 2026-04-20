@@ -81,9 +81,9 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, data: []const u8) ![:0]u16
 }
 
 /// Create/Allocate a unique window class with a uuid v4 prefixed with `STC`
-pub fn createUIDClass(allocator: std.mem.Allocator) ![:0]u16 {
+pub fn createUIDClass(io: std.Io, allocator: std.mem.Allocator) ![:0]u16 {
     // Size of {3}-{36}{null} == 41
-    const uid = uuid.urn.serialize(uuid.v4.new());
+    const uid = uuid.urn.serialize(uuid.v4.new(io));
     const temp = try std.fmt.allocPrint(allocator, "STC-{s}", .{uid});
     defer allocator.free(temp);
 
@@ -91,7 +91,6 @@ pub fn createUIDClass(allocator: std.mem.Allocator) ![:0]u16 {
 }
 
 pub fn applyLegacyBlur(hwnd: HWND) void {
-    std.debug.print("Apply Legacy Blur\n", .{});
     var rc: win32.foundation.RECT = undefined;
     _ = win32.ui.windows_and_messaging.GetClientRect(hwnd, &rc);
 

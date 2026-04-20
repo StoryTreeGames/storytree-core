@@ -14,6 +14,7 @@ const win32 = windows.win32;
 
 const zig = windows.win32.zig;
 const windows_and_messaging = windows.win32.ui.windows_and_messaging;
+const library_loader = win32.system.library_loader;
 const dwm = win32.graphics.dwm;
 
 const UISettings = windows.UI.ViewManagement.UISettings;
@@ -67,10 +68,10 @@ fn shouldAppsUseDarkMode() bool {
         return callback();
     } else {
         const dll_name = std.unicode.utf8ToUtf16LeStringLiteral("uxtheme.dll");
-        const uxtheme = std.os.windows.kernel32.LoadLibraryW(dll_name) orelse return false;
-        defer _ = std.os.windows.kernel32.FreeLibrary(uxtheme);
+        const uxtheme = library_loader.LoadLibraryExW(dll_name, null, .{}) orelse return false;
+        defer _ = library_loader.FreeLibrary(uxtheme);
 
-        const func_ptr = std.os.windows.kernel32.GetProcAddress(uxtheme, @ptrFromInt(132)) orelse return false;
+        const func_ptr = library_loader.GetProcAddress(uxtheme, @ptrFromInt(132)) orelse return false;
         ShouldAppsUseDarkMode = @ptrCast(func_ptr);
 
         return ShouldAppsUseDarkMode.?();

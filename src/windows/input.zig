@@ -225,7 +225,7 @@ pub fn getKeyState(key: anytype) bool {
     const KEY = @TypeOf(key);
     var value = switch (KEY) {
         u8, u21, u32, comptime_int => @as(i32, @bitCast(@as(u32, @intCast(key)))),
-        VirtualKey, @Type(.enum_literal) => virtualKeyToCode(key),
+        VirtualKey, @EnumLiteral() => virtualKeyToCode(key),
         else => @compileError("expected char or virtual key"),
     };
 
@@ -242,7 +242,7 @@ pub fn getAsyncKeyState(key: anytype) bool {
     const KEY = @TypeOf(key);
     var value = switch (KEY) {
         u8, u21, u32, comptime_int => @as(i32, @bitCast(@as(u32, @intCast(key)))),
-        VirtualKey, @Type(.enum_literal) => virtualKeyToCode(key),
+        VirtualKey, @EnumLiteral() => virtualKeyToCode(key),
         else => @compileError("expected char or virtual key"),
     };
 

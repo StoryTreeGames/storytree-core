@@ -111,7 +111,7 @@ pub fn init(
 
     win.title = try util.utf8ToUtf16Alloc(allo, options.title);
     errdefer allo.free(win.title);
-    win.class = try util.createUIDClass(allo);
+    win.class = try util.createUIDClass(event_loop.io, allo);
     errdefer allo.free(win.class);
 
     win.instance = library_loader.GetModuleHandleW(null);

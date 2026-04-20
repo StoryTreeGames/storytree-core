@@ -8,15 +8,14 @@ const EventLoop = event.EventLoop;
 const Event = event.Event;
 const WindowEvent = event.WindowEvent;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    const io = init.io;
 
-    var event_loop = try EventLoop.init(allocator);
+    var event_loop = try EventLoop.init(io, gpa);
     defer event_loop.deinit();
 
-    var state = State.init(allocator);
+    var state = State.init(gpa);
     defer state.deinit();
 
     // Custom debug output of window

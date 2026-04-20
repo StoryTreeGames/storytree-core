@@ -1,10 +1,7 @@
 const kam = @import("windows").win32.ui.input.keyboard_and_mouse;
 const VirtualKey = @import("../../input.zig").VirtualKey;
 
-const xkbcommon = @cImport({
-    @cInclude("xkbcommon/xkbcommon.h");
-    @cInclude("xkbcommon/xkbcommon-keysyms.h");
-});
+const xkbcommon = @import("xkbcommon");
 
 pub fn virtualKeyToCode(virtual_key: VirtualKey) i32 {
     return switch (virtual_key) {

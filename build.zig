@@ -15,14 +15,29 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    var deps: std.ArrayList(std.Build.Module.Import) = .empty;
+    defer deps.deinit(b.allocator);
+
+    const translate_wayland_cursor = b.addTranslateC(.{
+        .root_source_file = b.path("src/cursor.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const translate_xkbcommon = b.addTranslateC(.{
+        .root_source_file = b.path("src/keyboard.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const module = b.addModule(NAME, .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    var deps: std.ArrayList(std.Build.Module.Import) = .empty;
-    defer deps.deinit(b.allocator);
+    if (builtin.target.os.tag == .linux) {
+    }
 
     const uuid = b.dependency("uuid", .{});
 
@@ -38,20 +53,19 @@ pub fn build(b: *std.Build) !void {
     module.addImport("uuid", uuid.module("uuid"));
     switch (builtin.target.os.tag) {
         .windows => {
-            const windows_zig = b.dependency("windows", .{});
-
-            // Note: To build exe so a console window doesn't appear
-            // Add this to any exe build: `exe.subsystem = .Windows;`
-            module.addImport("windows", windows_zig.module("windows"));
-            try deps.append(b.allocator, .{ .name = "windows", .module = windows_zig.module("windows") });
+            if (b.lazyDependency("windows", .{ .target = target, .optimize = optimize })) |windows| {
+                const windows_mod = windows.module("windows");
+                // Note: To build exe so a console window doesn't appear
+                // Add this to any exe build: `exe.subsystem = .Windows;`
+                module.addImport("windows", windows_mod);
+                try deps.append(b.allocator, .{ .name = "windows", .module = windows_mod });
+            }
         },
         .linux => {
             const Scanner = @import("wayland").Scanner;
 
             module.linkSystemLibrary("wayland-client", .{});
             module.linkSystemLibrary("wayland-cursor", .{});
-            // TODO: Remove this in favor of https://codeberg.org/ifreund/zig-xkbcommon when
-            //        is updated to zig v0.15.1
             module.linkSystemLibrary("xkbcommon", .{});
             module.linkSystemLibrary("dbus-1", .{});
 
@@ -82,6 +96,15 @@ pub fn build(b: *std.Build) !void {
 
             module.addImport("wayland", wayland);
             try deps.append(b.allocator, .{ .name = "wayland", .module = wayland });
+
+            const xkbcommon = translate_xkbcommon.createModule();
+            const wayland_cursor = translate_wayland_cursor.createModule();
+
+            module.addImport("xkbcommon", xkbcommon);
+            module.addImport("wayland_cursor", wayland_cursor);
+
+            try deps.append(b.allocator, .{ .name = "xkbcommon", .module = xkbcommon });
+            try deps.append(b.allocator, .{ .name = "wayland_cursor", .module = wayland_cursor });
         },
         else => {},
     }
@@ -129,25 +152,28 @@ pub fn addExample(
     system_libraries: []const std.meta.Tuple(&.{ []const u8, Tag }),
     assets_dir: *std.Build.Step,
 ) void {
-    const exe = b.addExecutable(.{ .name = example.name, .root_module = b.createModule(.{
+    const exe_mod = b.createModule(.{
         .root_source_file = b.path(example.path),
         .target = target,
         .optimize = optimize,
         .imports = imports,
-    }) });
+        .link_libc = link_lib_c,
+    });
 
-    exe.addWin32ResourceFile(.{ .file = b.path("app.rc") });
+    exe_mod.addWin32ResourceFile(.{ .file = b.path("app.rc") });
 
-    exe.step.dependOn(assets_dir);
-
-    b.installArtifact(exe);
-
-    if (link_lib_c) exe.linkLibC();
     for (system_libraries) |library| {
         if (library[1] == builtin.target.os.tag) {
-            exe.linkSystemLibrary(library[0]);
+            exe_mod.linkSystemLibrary(library[0], .{ .preferred_link_mode = .static });
         }
     }
+
+    const exe = b.addExecutable(.{
+        .name = example.name,
+        .root_module = exe_mod
+    });
+    exe.step.dependOn(assets_dir);
+    b.installArtifact(exe);
 
     const ecmd = b.addRunArtifact(exe);
     ecmd.step.dependOn(b.getInstallStep());
