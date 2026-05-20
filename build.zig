@@ -2,14 +2,10 @@ const std = @import("std");
 const Tag = std.Target.Os.Tag;
 const builtin = @import("builtin");
 
+const ez = @import("example_zig");
+
 const NAME = "zinit";
 const EXAMPLES = "examples";
-
-const examples = [_]Example{
-    .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
-    .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
-    .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
-};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -35,9 +31,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-
-    if (builtin.target.os.tag == .linux) {
-    }
 
     const uuid = b.dependency("uuid", .{});
 
@@ -121,66 +114,22 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
 
-    inline for (examples) |example| {
-        addExample(
-            b,
-            target,
-            optimize,
-            example,
-            deps.items,
-            builtin.target.os.tag == .linux,
-            &.{
-                .{ "wayland-client", .linux },
+    inline for (.{
+        .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
+        .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
+        .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
+    }) |example| {
+        try ez.addExample(b, .{ 
+            .name = example.name,
+            .path = example.path,
+            .target = target,
+            .optimize = optimize,
+            .imports = deps.items,
+            .lib_c = builtin.target.os.tag == .linux,
+            .libraries = &.{
+                .{ .name = "wayland-client", .platform = .linux, .mode = .static },
             },
-            &assets_dir.step,
-        );
+            .assets_dir = &assets_dir.step
+        });
     }
-}
-
-const Example = struct {
-    name: []const u8,
-    path: []const u8,
-};
-
-pub fn addExample(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    comptime example: Example,
-    imports: []const std.Build.Module.Import,
-    link_lib_c: bool,
-    system_libraries: []const std.meta.Tuple(&.{ []const u8, Tag }),
-    assets_dir: *std.Build.Step,
-) void {
-    const exe_mod = b.createModule(.{
-        .root_source_file = b.path(example.path),
-        .target = target,
-        .optimize = optimize,
-        .imports = imports,
-        .link_libc = link_lib_c,
-    });
-
-    exe_mod.addWin32ResourceFile(.{ .file = b.path("app.rc") });
-
-    for (system_libraries) |library| {
-        if (library[1] == builtin.target.os.tag) {
-            exe_mod.linkSystemLibrary(library[0], .{ .preferred_link_mode = .static });
-        }
-    }
-
-    const exe = b.addExecutable(.{
-        .name = example.name,
-        .root_module = exe_mod
-    });
-    exe.step.dependOn(assets_dir);
-    b.installArtifact(exe);
-
-    const ecmd = b.addRunArtifact(exe);
-    ecmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        ecmd.addArgs(args);
-    }
-
-    const estep = b.step("run-" ++ example.name, "Run example " ++ example.name);
-    estep.dependOn(&ecmd.step);
 }

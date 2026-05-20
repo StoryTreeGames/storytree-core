@@ -5,8 +5,8 @@
     .fingerprint = 0x9270341b276fba4a,
     .dependencies = .{
         .uuid = .{
-            .url = "git+https://codeberg.org/r4gus/uuid-zig.git#97220fa411b69513df603f935fe2f8a294f1ca64",
-            .hash = "uuid-0.4.0-oOieIVh6AAA32OyOsZmY3yAkszkVtDyvIWaCufEfACsc",
+            .url = "git+https://codeberg.org/r4gus/uuid-zig.git#3473041e2965ba23b975a4b767866fcf43e8041c",
+            .hash = "uuid-0.5.0-oOieIYB-AAAon001Vv2FdX7zPLraCojPHKeWHg_9Obm7",
         },
         .wayland = .{
             .url = "git+https://github.com/ifreund/zig-wayland#4a150a04f76f7329e80280661355c04328369d1f",
@@ -16,6 +16,10 @@
             .url = "git+https://github.com/Tired-Fox/windows-zig.git#498a12ea2df49e81032396a363f035065e1835b1",
             .hash = "windows-0.0.2-kXMVSjnSSgJe-5A-VUFKM2G3TpsElJ0Kb77OeECRXrGi",
             .lazy = true,
+        },
+        .example_zig = .{
+            .url = "git+https://github.com/Tired-Fox/example-zig.git#2d23412491f3201f33488046b9bcfe5b60641ba2",
+            .hash = "example_zig-0.0.1-yHg3BywMAABPi_FeTfCK2VZWiyE2FrzaHmN1ezgUcIms",
         },
     },
     .paths = .{
