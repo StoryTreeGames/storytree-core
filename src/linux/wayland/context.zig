@@ -71,20 +71,24 @@ pub fn deinit(self: *@This()) void {
 fn registryListener(registry: *wl.Registry, event: wl.Registry.Event, context: *Payload) void {
     switch (event) {
         .global => |global| {
-            if (std.mem.orderZ(u8, global.interface, wl.Compositor.interface.name) == .eq) {
+            if (hasInterface(global.interface, wl.Compositor.interface.name)) {
                 context.compositor = registry.bind(global.name, wl.Compositor, 1) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, wl.Shm.interface.name) == .eq) {
+            } else if (hasInterface(global.interface, wl.Shm.interface.name)) {
                 context.shm = registry.bind(global.name, wl.Shm, 1) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, xdg.WmBase.interface.name) == .eq) {
+            } else if (hasInterface(global.interface, xdg.WmBase.interface.name)) {
                 context.wm_base = registry.bind(global.name, xdg.WmBase, 1) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, wl.Seat.interface.name) == .eq) {
+            } else if (hasInterface(global.interface, wl.Seat.interface.name)) {
                 context.seat = registry.bind(global.name, wl.Seat, 7) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, zxdg.DecorationManagerV1.interface.name) == .eq) {
+            } else if (hasInterface(global.interface, zxdg.DecorationManagerV1.interface.name)) {
                 context.deco_mng = registry.bind(global.name, zxdg.DecorationManagerV1, 1) catch return;
-            } else if (std.mem.orderZ(u8, global.interface, wp.CursorShapeManagerV1.interface.name) == .eq) {
+            } else if (hasInterface(global.interface, wp.CursorShapeManagerV1.interface.name)) {
                 context.cursor_mng = registry.bind(global.name, wp.CursorShapeManagerV1, 1) catch return;
             }
         },
         .global_remove => {},
     }
+}
+
+fn hasInterface(interface: [*:0]const u8, target: [*:0]const u8) bool {
+    return std.mem.orderZ(u8, interface, target) == .eq;
 }

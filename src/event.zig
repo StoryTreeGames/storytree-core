@@ -2,8 +2,10 @@ const std = @import("std");
 const input = @import("input.zig");
 
 const Window = @import("window.zig").Window;
+const Theme = @import("window.zig").Theme;
 const Visibility = @import("window.zig").Visibility;
 const Key = input.Key;
+const VirtualKey = input.VirtualKey;
 const MouseButton = input.MouseButton;
 const Point = @import("root.zig").Point;
 
@@ -30,7 +32,7 @@ pub const KeyEvent = struct {
 
         const key_match = switch (KEY) {
             u8, u21, u32, comptime_int => self.key == .char and @as(u21, @intCast(key)) == @as(u21, @truncate(std.mem.readInt(u32, &self.key.char, .little))),
-            input.VirtualKey, @Type(.enum_literal) => self.key == .virtual and self.key.virtual == key,
+            input.VirtualKey, @EnumLiteral() => self.key == .virtual and self.key.virtual == key,
             else => @compileError("unsupported key type '" ++ @typeName(@TypeOf(key)) ++ "': expected u8, u21, u32, or virtual key"),
         };
 
@@ -89,6 +91,22 @@ pub const SizeEvent = struct {
     height: u32,
 };
 
+pub const DeviceEvent = union(enum) {
+    added,
+    removed,
+    mouse_delta: struct { x: i32 = 0, y: i32 = 0  },
+    mouse_wheel: struct { horizontal: f32 = 0.0, vertical: f32 = 0.0  },
+    delta: struct { axis: u32, value: i32 },
+    button: struct {
+        id: usize,
+        state: ButtonState,
+    },
+    key: struct {
+        key: VirtualKey,
+        state: ButtonState,
+    }
+};
+
 pub const WindowEvent = union(enum) {
     /// Close request
     close,
@@ -100,16 +118,20 @@ pub const WindowEvent = union(enum) {
     key: KeyEvent,
     /// Mouse button input event post
     mouse: MouseEvent,
-    /// Mouse move event post
+    /// Mouse move event position
     move: Point(i32),
-    /// Mouse move event post
-    raw: Point(i32),
+    /// Mouse enter
+    enter: void,
+    /// Mouse leave
+    leave: void,
     /// Mouse scroll event post
     scroll: ScrollEvent,
     /// Change in window visibility
     visibility: Visibility,
     /// Menu item selected
     menu: MenuEvent,
+    /// Window theme changed
+    theme: Theme,
 };
 
 pub const MenuEvent = struct {
@@ -119,7 +141,6 @@ pub const MenuEvent = struct {
     pub const Kind = enum { window, taskbar };
 };
 
-pub const ThemeEvent = enum { light, dark };
 pub const UserEvent = struct {
     id: u32,
     payload: u32,
@@ -135,19 +156,26 @@ pub const UserEvent = struct {
         };
     }
 };
+
 pub const Event = union(enum) {
-    theme: ThemeEvent,
     window: struct {
         target: *Window,
         event: WindowEvent,
+    },
+    device: struct {
+        id: usize,
+        event: DeviceEvent,
     },
     user: UserEvent
 };
 
 pub const QueuedEvent = union(enum) {
-    theme: ThemeEvent,
     destroy: usize,
     user: UserEvent,
+    device: struct {
+        id: usize,
+        event: DeviceEvent,
+    },
     window: struct {
         target: usize,
         event: WindowEvent,
@@ -166,9 +194,10 @@ pub fn LinkedQueue(comptime T: type) type {
             value: T,
         };
 
+        io: std.Io,
         allocator: std.mem.Allocator,
 
-        mutex: std.Thread.Mutex = .{},
+        mutex: std.Io.Mutex = .init,
 
         head: ?*Node = null, // oldest
         tail: ?*Node = null, // newest
@@ -176,14 +205,21 @@ pub fn LinkedQueue(comptime T: type) type {
 
         pub const PushError = std.mem.Allocator.Error;
 
+        pub fn init(io: std.Io, allocator: std.mem.Allocator) @This() {
+            return .{
+                .io = io,
+                .allocator = allocator
+            };
+        }
+
         /// Frees any remaining nodes. Ensure no threads are using the queue.
         pub fn deinit(self: *Self) void {
-            self.mutex.lock();
+            self.mutex.lock(self.io) catch unreachable;
             var cur = self.head;
             self.head = null;
             self.tail = null;
             self.count = 0;
-            self.mutex.unlock();
+            self.mutex.unlock(self.io);
 
             while (cur) |n| {
                 const next = n.next;
@@ -197,8 +233,8 @@ pub fn LinkedQueue(comptime T: type) type {
             const n = try self.allocator.create(Node);
             n.* = .{ .next = null, .value = value };
 
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             if (self.tail) |t| {
                 t.next = n;
@@ -212,8 +248,8 @@ pub fn LinkedQueue(comptime T: type) type {
         /// Clear all items in the queue freeing the memeory
         /// and resetting the queue to 0 items.
         pub fn clear(self: *Self) void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             var next = self.head;
             self.head = null;
@@ -227,8 +263,8 @@ pub fn LinkedQueue(comptime T: type) type {
 
         /// Dequeue one value if available; returns null when empty.
         pub fn pop(self: *Self) ?T {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
 
             const h = self.head orelse return null;
 
@@ -244,14 +280,14 @@ pub fn LinkedQueue(comptime T: type) type {
         }
 
         pub fn isEmpty(self: *Self) bool {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
             return self.head == null;
         }
 
         pub fn len(self: *Self) usize {
-            self.mutex.lock();
-            defer self.mutex.unlock();
+            self.mutex.lock(self.io) catch unreachable;
+            defer self.mutex.unlock(self.io);
             return self.count;
         }
     };
@@ -261,6 +297,7 @@ pub const EventQueue = LinkedQueue(QueuedEvent);
 
 pub const EventLoop = switch (@import("builtin").target.os.tag) {
     .windows => @import("windows/event.zig"),
-    .linux => @import("linux/event.zig"),
+    // TODO: Make a linux wrapper that will use wayland and fallback to x11
+    .linux => @import("linux/wayland/event.zig"),
     else => @compileError("unsupported platform"),
 };

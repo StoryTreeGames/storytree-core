@@ -1,12 +1,12 @@
 const Shape = @import("wayland").client.wp.CursorShapeDeviceV1.Shape;
-const CursorType = @import("../cursor.zig").CursorType;
+const Symbol = @import("../../cursor.zig").Symbol;
 
-pub fn cursorToShape(cursor: CursorType) Shape {
+pub fn cursorToShape(cursor: Symbol) Shape {
     const intermediate: c_int = @intFromEnum(cursor);
     return @enumFromInt(intermediate);
 }
 
-pub fn cursorToName(cursor: CursorType) []const [*:0]const u8 {
+pub fn cursorToName(cursor: Symbol) []const [*:0]const u8 {
     return switch (cursor) {
         .default => &.{ "left_ptr", "default", "arrow" },
         .context_menu => &.{ "context-menu", "menu", "left_ptr" },

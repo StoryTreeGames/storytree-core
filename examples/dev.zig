@@ -5,6 +5,7 @@ const TargetTag = @import("builtin").target.os.tag;
 const zinit = @import("zinit");
 const event = zinit.event;
 const input = zinit.input;
+const cursor = zinit.cursor;
 
 const Window = zinit.window.Window;
 const EventLoop = event.EventLoop;
@@ -121,15 +122,14 @@ const State = struct {
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const gpa = init.gpa;
+    const io = init.io;
 
-    const event_loop = try EventLoop.init(allocator);
+    const event_loop = try EventLoop.init(io, gpa);
     defer event_loop.deinit();
 
-    try event_loop.setAppId("com.storytree.core");
+    try event_loop.setAppId("zinit.dev.example");
 
     // Custom debug output of window
     std.debug.print(
@@ -143,10 +143,10 @@ pub fn main() !void {
         \\
     , .{});
 
-    var state: State = .{ .allocator = allocator };
+    var state: State = .{ .allocator = gpa };
 
-    const title = try std.fmt.allocPrint(allocator, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
-    defer allocator.free(title);
+    const title = try std.fmt.allocPrint(gpa, "Cursor ({s})", .{@tagName(state.cursor.symbol)});
+    defer gpa.free(title);
     _ = try event_loop.createWindow(.{
         .title = title,
         .width = 800,

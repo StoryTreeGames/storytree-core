@@ -81,11 +81,41 @@ pub fn utf8ToUtf16Alloc(allocator: std.mem.Allocator, data: []const u8) ![:0]u16
 }
 
 /// Create/Allocate a unique window class with a uuid v4 prefixed with `STC`
-pub fn createUIDClass(allocator: std.mem.Allocator) ![:0]u16 {
+pub fn createUIDClass(io: std.Io, allocator: std.mem.Allocator) ![:0]u16 {
     // Size of {3}-{36}{null} == 41
-    const uid = uuid.urn.serialize(uuid.v4.new());
+    const uid = uuid.urn.serialize(uuid.v4.new(io));
     const temp = try std.fmt.allocPrint(allocator, "STC-{s}", .{uid});
     defer allocator.free(temp);
 
     return try utf8ToUtf16Alloc(allocator, temp);
+}
+
+pub fn applyLegacyBlur(hwnd: HWND) void {
+    var rc: win32.foundation.RECT = undefined;
+    _ = win32.ui.windows_and_messaging.GetClientRect(hwnd, &rc);
+
+    const menuH = if (win32.ui.windows_and_messaging.GetMenu(hwnd)) |_|
+        win32.ui.windows_and_messaging.GetSystemMetrics(win32.ui.windows_and_messaging.SM_CYMENU)
+    else
+        0;
+
+    const rgn = win32.graphics.gdi.CreateRectRgn(rc.left, rc.top + menuH, rc.right, rc.bottom + menuH);
+
+    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
+        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE | win32.graphics.dwm.DWM_BB_BLURREGION,
+        .fEnable = win32.zig.TRUE,
+        .hRgnBlur = rgn,
+        .fTransitionOnMaximized = win32.zig.FALSE
+    };
+    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
+    _ = win32.graphics.gdi.DeleteObject(rgn);
+}
+pub fn disableLegacyBlur(hwnd: HWND) void {
+    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
+        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE,
+        .fEnable = win32.zig.FALSE,
+        .hRgnBlur = null,
+        .fTransitionOnMaximized = win32.zig.FALSE
+    };
+    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
 }

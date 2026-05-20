@@ -6,17 +6,17 @@ const xdg = wayland.client.xdg;
 const zxdg = wayland.client.zxdg;
 const wp = wayland.client.wp;
 
-const Options = @import("../window.zig").Options;
-const Handles = @import("../window.zig").Handles;
-const Visibility = @import("../window.zig").Visibility;
+const Options = @import("../../window.zig").Options;
+const Handles = @import("../../window.zig").Handles;
+const Visibility = @import("../../window.zig").Visibility;
 const Context = @import("context.zig");
-const EventLoop = @import("../event.zig").EventLoop;
-const Event = @import("../event.zig").Event;
-const QueuedEvent = @import("../event.zig").QueuedEvent;
-const EventQueue = @import("../event.zig").EventQueue;
-const Symbol = @import("../cursor.zig").Symbol;
+const EventLoop = @import("../../event.zig").EventLoop;
+const Event = @import("../../event.zig").Event;
+const QueuedEvent = @import("../../event.zig").QueuedEvent;
+const EventQueue = @import("../../event.zig").EventQueue;
+const Symbol = @import("../../cursor.zig").Symbol;
 
-const Rect = @import("../root.zig").Rect;
+const Rect = @import("../../root.zig").Rect;
 
 const WindowState = packed struct(u4) {
     maximized: bool = false,
@@ -58,19 +58,35 @@ shown: bool = false,
 server_side_decorations: bool = false,
 
 arena: std.heap.ArenaAllocator,
-event_loop: *EventLoop,
 
+listener_context: *ListenerContext,
+
+display: *wl.Display,
 surface: *wl.Surface = undefined,
+
 desktop: Xdg = .{},
 cursor: Cursor = .{ .icon = .default },
+
+const ListenerContext = struct {
+    window: *@This(),
+    queue: *EventQueue,
+};
 
 pub fn init(allocator: std.mem.Allocator, event_loop: *EventLoop, options: Options) !*@This() {
     const self = try allocator.create(@This());
     errdefer allocator.destroy(self);
 
+    const listener_context = try allocator.create(ListenerContext);
+    errdefer allocator.destroy(listener_context);
+
+    listener_context.* = .{
+        .window = self,
+        .queue = &event_loop.queue,
+    };
+
     self.* = .{
         .arena = std.heap.ArenaAllocator.init(allocator),
-        .event_loop = event_loop,
+        .listener_context = listener_context,
     };
     errdefer self.arena.deinit();
 
@@ -109,8 +125,8 @@ pub fn init(allocator: std.mem.Allocator, event_loop: *EventLoop, options: Optio
         self.desktop.deco.?.setMode(.server_side);
     }
 
-    self.desktop.surface.setListener(*@This(), xdgSurfaceListener, self);
-    self.desktop.top_level.setListener(*@This(), xdgToplevelListener, self);
+    self.desktop.surface.setListener(*ListenerContext, xdgSurfaceListener, self.listener_context);
+    self.desktop.top_level.setListener(*ListenerContext, xdgToplevelListener, self.listener_context);
 
     self.surface.commit();
     if (event_loop.display.roundtrip() != .SUCCESS) return error.RoundtripFailed;
@@ -124,6 +140,7 @@ pub fn deinit(self: *@This()) void {
 
     const parent = self.arena.child_allocator;
     self.arena.deinit();
+    parent.destroy(self.listener_context);
     parent.destroy(self);
 }
 
@@ -143,7 +160,7 @@ pub fn id(self: *const @This()) usize {
 /// - Linux: Surface
 pub fn handles(self: *const @This()) Handles {
     return .{
-        .parent = @ptrCast(self.event_loop.display),
+        .parent = @ptrCast(self.display),
         .target = @ptrCast(self.surface),
     };
 }
@@ -293,21 +310,21 @@ const Xdg = struct {
     }
 };
 
-pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, self: *@This()) void {
+pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, ctx: *ListenerContext) void {
     switch (event) {
         .configure => |configure| {
             xdg_surface.ackConfigure(configure.serial);
 
             // How to get window???
-            self.surface.commit();
+            ctx.window.surface.commit();
 
-            if (self.configured) {
-                if (self.dirty) |dirty| {
-                    const w = if (dirty.width > 0) dirty.width else self.width;
-                    const h = if (dirty.height > 0) dirty.height else self.height;
-                    self.event_loop.queue.append(.{
+            if (ctx.window.configured) {
+                if (ctx.window.dirty) |dirty| {
+                    const w = if (dirty.width > 0) dirty.width else ctx.window.width;
+                    const h = if (dirty.height > 0) dirty.height else ctx.window.height;
+                    ctx.queue.append(.{
                         .window = .{
-                            .target = @intFromPtr(self.surface),
+                            .target = @intFromPtr(ctx.window.surface),
                             .event = .{
                                 .resize = .{
                                     .width = @intCast(w),
@@ -317,19 +334,19 @@ pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, s
                         },
                     }) catch {};
 
-                    self.width = w;
-                    self.height = h;
-                    self.dirty = null;
+                    ctx.window.width = w;
+                    ctx.window.height = h;
+                    ctx.window.dirty = null;
                 }
             } else {
-                self.configured = true;
-                self.event_loop.queue.append(.{
+                ctx.window.configured = true;
+                ctx.queue.append(.{
                     .window = .{
-                        .target = @intFromPtr(self.surface),
+                        .target = @intFromPtr(ctx.window.surface),
                         .event = .{
                             .resize = .{
-                                .width = @intCast(self.width),
-                                .height = @intCast(self.height),
+                                .width = @intCast(ctx.window.width),
+                                .height = @intCast(ctx.window.height),
                             },
                         },
                     },
@@ -339,28 +356,28 @@ pub fn xdgSurfaceListener(xdg_surface: *xdg.Surface, event: xdg.Surface.Event, s
     }
 }
 
-pub fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, self: *@This()) void {
+pub fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, ctx: *ListenerContext) void {
     switch (event) {
         .configure => |cfg| {
             if (cfg.width != 0 or cfg.height != 0) {
-                self.dirty = .{
-                    .width = if (cfg.width == 0) self.width else cfg.width,
-                    .height = if (cfg.height == 0) self.height else cfg.height,
+                ctx.window.dirty = .{
+                    .width = if (cfg.width == 0) ctx.window.width else cfg.width,
+                    .height = if (cfg.height == 0) ctx.window.height else cfg.height,
                 };
             }
 
-            self.state = .{};
+            ctx.window.state = .{};
             for (cfg.states.slice(xdg.Toplevel.State)) |state| {
                 switch (state) {
-                    .fullscreen => self.state.fullscreen = true,
-                    .maximized => self.state.maximized = true,
-                    .activated => self.state.activated = true,
-                    .resizing => self.state.resizing = true,
+                    .fullscreen => ctx.window.state.fullscreen = true,
+                    .maximized => ctx.window.state.maximized = true,
+                    .activated => ctx.window.state.activated = true,
+                    .resizing => ctx.window.state.resizing = true,
                     else => {},
                 }
 
-                self.event_loop.queue.append(.{ .window = .{
-                    .target = @intFromPtr(self.surface),
+                ctx.queue.append(.{ .window = .{
+                    .target = @intFromPtr(ctx.window.surface),
                     .event = .{
                         .visibility = switch (state) {
                             .fullscreen => .fullscreen,
@@ -371,9 +388,9 @@ pub fn xdgToplevelListener(_: *xdg.Toplevel, event: xdg.Toplevel.Event, self: *@
                 } }) catch {};
             }
         },
-        .close => self.event_loop.queue.append(.{
+        .close => ctx.queue.append(.{
             .window = .{
-                .target = @intFromPtr(self.surface),
+                .target = @intFromPtr(ctx.window.surface),
                 .event = .close,
             },
         }) catch {},

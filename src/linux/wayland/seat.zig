@@ -1,12 +1,11 @@
 const std = @import("std");
 
+const wl_cursor = @import("wayland_cursor");
+const xkbcommon = @import("xkbcommon");
+
 const wayland = @import("wayland");
 const wl = wayland.client.wl;
 const wp = wayland.client.wp;
-
-const wl_cursor = @cImport({
-    @cInclude("wayland-cursor.h");
-});
 
 const EventLoop = @import("event.zig");
 const input = @import("input.zig");
@@ -14,12 +13,7 @@ const input = @import("input.zig");
 const cursorToShape = @import("cursor.zig").cursorToShape;
 const cursorToName = @import("cursor.zig").cursorToName;
 
-const xkbcommon = @cImport({
-    @cInclude("xkbcommon/xkbcommon.h");
-    @cInclude("xkbcommon/xkbcommon-compose.h");
-});
-
-const CursorType = @import("../cursor.zig").CursorType;
+const CursorType = @import("../../cursor.zig").Symbol;
 
 _seat: *wl.Seat,
 
@@ -27,6 +21,7 @@ cursor_shape_device: ?*wp.CursorShapeDeviceV1 = null,
 cursor_theme: ?*wl_cursor.wl_cursor_theme = null,
 cursor_surface: ?*wl.Surface = null,
 
+// Mouse Pointer
 pointer: ?*wl.Pointer = null,
 keyboard: ?*wl.Keyboard = null,
 
@@ -283,6 +278,7 @@ pub fn pointerListener(_: *wl.Pointer, event: wl.Pointer.Event, el: *EventLoop) 
     }
 }
 
+// TODO: Revisit context fetching seat instance based on multi seat structure rewrite
 pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoop) void {
     const seat: *@This() = &el.context.seat;
     switch (event) {
@@ -309,10 +305,15 @@ pub fn keyboardListener(_: *wl.Keyboard, event: wl.Keyboard.Event, el: *EventLoo
             if (seat.keymap) |old| xkbcommon.xkb_keymap_unref(old);
             if (seat.key_state) |old| xkbcommon.xkb_state_unref(old);
 
-            const locale: ?[]const u8 = std.process.getEnvVarOwned(std.heap.page_allocator, "LC_ALL") catch std.process.getEnvVarOwned(std.heap.page_allocator, "LANG") catch null;
-            defer if (locale) |l| std.heap.page_allocator.free(l);
+            const locale: ?[]const u8 = std.process.getEnvVarOwned(std.heap.c_allocator, "LC_ALL")
+                catch std.process.getEnvVarOwned(std.heap.c_allocator, "LANG") catch null;
+            defer if (locale) |l| std.heap.c_allocator.free(l);
 
-            seat.compose.table = xkbcommon.xkb_compose_table_new_from_locale(seat.kctx.?, if (locale) |l| l.ptr else "C", xkbcommon.XKB_COMPOSE_COMPILE_NO_FLAGS);
+            seat.compose.table = xkbcommon.xkb_compose_table_new_from_locale(
+                seat.kctx.?,
+                if (locale) |l| l.ptr else "C",
+                xkbcommon.XKB_COMPOSE_COMPILE_NO_FLAGS,
+            );
             seat.compose.state = xkbcommon.xkb_compose_state_new(seat.compose.table, xkbcommon.XKB_COMPOSE_STATE_NO_FLAGS);
 
             const keymap = xkbcommon.xkb_keymap_new_from_string(

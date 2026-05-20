@@ -4,7 +4,6 @@ const Rect = @import("root.zig").Rect;
 const Icon = @import("icon.zig").Icon;
 const Cursor = @import("cursor.zig").Cursor;
 const EventLoop = @import("event.zig").EventLoop;
-const DropTarget = @import("drag_drop.zig").DropTarget;
 
 pub const Impl = switch (@import("builtin").os.tag) {
     .windows => @import("windows/window.zig"),
@@ -14,7 +13,6 @@ pub const Impl = switch (@import("builtin").os.tag) {
 pub const Theme = enum {
     light,
     dark,
-    system,
 
     pub fn isLight(self: *const @This()) bool {
         return self.* == .light;
@@ -46,7 +44,10 @@ pub const Options = struct {
     cursor: Cursor = .Default,
 
     // Linux does not have reactive theme, this will be added at a later date with DBus support.
-    theme: Theme = .system,
+    theme: ?Theme = null,
+
+    // Currently only supported on windows. All other platforms are NOOP
+    acrylic: bool = false,
 
     /// Has no affect on linux.
     ///
@@ -61,7 +62,7 @@ pub const Options = struct {
 
 pub const Window = switch (@import("builtin").target.os.tag) {
     .windows => @import("windows/window.zig"),
-    .linux => @import("linux/window.zig"),
+    .linux => @import("linux/wayland/window.zig"),
     else => @compileError("unsupported platform"),
 };
 
@@ -171,8 +172,4 @@ pub fn setCapture(self: *@This(), state: bool) void {
 /// Set the window's configured theme
 pub fn setTheme(self: *@This(), theme: Theme) void {
     self.impl.setTheme(theme);
-}
-
-pub fn setDragDrop(self: *@This(), context: DropTarget.Context) !void {
-    try self.impl.setDragDrop(self.arena.allocator(), context);
 }

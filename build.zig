@@ -2,28 +2,35 @@ const std = @import("std");
 const Tag = std.Target.Os.Tag;
 const builtin = @import("builtin");
 
+const ez = @import("example_zig");
+
 const NAME = "zinit";
 const EXAMPLES = "examples";
-
-const examples = [_]Example{
-    .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
-    .{ .name = "drag_drop", .path = EXAMPLES ++ "/drag_drop.zig" },
-    .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
-    .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
-};
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    var deps: std.ArrayList(std.Build.Module.Import) = .empty;
+    defer deps.deinit(b.allocator);
+
+    const translate_wayland_cursor = b.addTranslateC(.{
+        .root_source_file = b.path("src/cursor.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const translate_xkbcommon = b.addTranslateC(.{
+        .root_source_file = b.path("src/keyboard.h"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const module = b.addModule(NAME, .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    var deps: std.ArrayList(std.Build.Module.Import) = .empty;
-    defer deps.deinit(b.allocator);
 
     const uuid = b.dependency("uuid", .{});
 
@@ -39,20 +46,19 @@ pub fn build(b: *std.Build) !void {
     module.addImport("uuid", uuid.module("uuid"));
     switch (builtin.target.os.tag) {
         .windows => {
-            const windows_zig = b.dependency("windows", .{});
-
-            // Note: To build exe so a console window doesn't appear
-            // Add this to any exe build: `exe.subsystem = .Windows;`
-            module.addImport("windows", windows_zig.module("windows"));
-            try deps.append(b.allocator, .{ .name = "windows", .module = windows_zig.module("windows") });
+            if (b.lazyDependency("windows", .{ .target = target, .optimize = optimize })) |windows| {
+                const windows_mod = windows.module("windows");
+                // Note: To build exe so a console window doesn't appear
+                // Add this to any exe build: `exe.subsystem = .Windows;`
+                module.addImport("windows", windows_mod);
+                try deps.append(b.allocator, .{ .name = "windows", .module = windows_mod });
+            }
         },
         .linux => {
             const Scanner = @import("wayland").Scanner;
 
             module.linkSystemLibrary("wayland-client", .{});
             module.linkSystemLibrary("wayland-cursor", .{});
-            // TODO: Remove this in favor of https://codeberg.org/ifreund/zig-xkbcommon when
-            //        is updated to zig v0.15.1
             module.linkSystemLibrary("xkbcommon", .{});
             module.linkSystemLibrary("dbus-1", .{});
 
@@ -83,6 +89,15 @@ pub fn build(b: *std.Build) !void {
 
             module.addImport("wayland", wayland);
             try deps.append(b.allocator, .{ .name = "wayland", .module = wayland });
+
+            const xkbcommon = translate_xkbcommon.createModule();
+            const wayland_cursor = translate_wayland_cursor.createModule();
+
+            module.addImport("xkbcommon", xkbcommon);
+            module.addImport("wayland_cursor", wayland_cursor);
+
+            try deps.append(b.allocator, .{ .name = "xkbcommon", .module = xkbcommon });
+            try deps.append(b.allocator, .{ .name = "wayland_cursor", .module = wayland_cursor });
         },
         else => {},
     }
@@ -99,63 +114,22 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
 
-    inline for (examples) |example| {
-        addExample(
-            b,
-            target,
-            optimize,
-            example,
-            deps.items,
-            builtin.target.os.tag == .linux,
-            &.{
-                .{ "wayland-client", .linux },
+    inline for (.{
+        .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
+        .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
+        .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
+    }) |example| {
+        try ez.addExample(b, .{ 
+            .name = example.name,
+            .path = example.path,
+            .target = target,
+            .optimize = optimize,
+            .imports = deps.items,
+            .lib_c = builtin.target.os.tag == .linux,
+            .libraries = &.{
+                .{ .name = "wayland-client", .platform = .linux, .mode = .static },
             },
-            &assets_dir.step,
-        );
+            .assets_dir = &assets_dir.step
+        });
     }
-}
-
-const Example = struct {
-    name: []const u8,
-    path: []const u8,
-};
-
-pub fn addExample(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    comptime example: Example,
-    imports: []const std.Build.Module.Import,
-    link_lib_c: bool,
-    system_libraries: []const std.meta.Tuple(&.{ []const u8, Tag }),
-    assets_dir: *std.Build.Step,
-) void {
-    const exe = b.addExecutable(.{ .name = example.name, .root_module = b.createModule(.{
-        .root_source_file = b.path(example.path),
-        .target = target,
-        .optimize = optimize,
-        .imports = imports,
-    }) });
-
-    exe.addWin32ResourceFile(.{ .file = b.path("app.rc") });
-
-    exe.step.dependOn(assets_dir);
-
-    b.installArtifact(exe);
-
-    if (link_lib_c) exe.linkLibC();
-    for (system_libraries) |library| {
-        if (library[1] == builtin.target.os.tag) {
-            exe.linkSystemLibrary(library[0]);
-        }
-    }
-
-    const ecmd = b.addRunArtifact(exe);
-    ecmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        ecmd.addArgs(args);
-    }
-
-    const estep = b.step("example-" ++ example.name, "Run example-" ++ example.name);
-    estep.dependOn(&ecmd.step);
 }
