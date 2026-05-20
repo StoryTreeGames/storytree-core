@@ -510,7 +510,7 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
         },
         windows_and_messaging.WM_SETCURSOR => {
             // Set user defined cursor when the mouse moves within the window
-            _ = windows_and_messaging.SetCursor(win.cursor.hCursor());
+            _ = windows_and_messaging.SetCursor(win.cursor.handle());
 
             // Allow for resize cursor to be drawn if cursor is at correct position
             // return windows_and_messaging.DefWindowProcW(hwnd, msg, wparam, lparam);

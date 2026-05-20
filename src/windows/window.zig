@@ -31,46 +31,10 @@ const Win = @import("../window.zig");
 const dark_mode = @import("dark_mode.zig");
 const util = @import("util.zig");
 const EventLoop = @import("../event.zig").EventLoop;
+const Cursor = @import("cursor.zig").Cursor;
 const cursorToResource = @import("cursor.zig").cursorToResource;
+const Icon = @import("icon.zig").Icon;
 const iconToResource = @import("icon.zig").iconToResource;
-
-const Icon = union(enum) {
-    system: ?HICON,
-    resource: ?HICON,
-
-    pub fn hIcon(self: *const @This()) ?HICON {
-        return switch (self.*) {
-            .system => |h| h,
-            .resource => |h| h,
-        };
-    }
-
-    pub fn deinit(self: *@This()) void {
-        switch (self.*) {
-            .resource => |h| _ = DestroyIcon(h),
-            else =>{}
-        }
-    }
-};
-
-const Cursor = union(enum) {
-    system: ?HCURSOR,
-    resource: ?HCURSOR,
-
-    pub fn hCursor(self: *const @This()) ?HCURSOR {
-        return switch (self.*) {
-            .system => |h| h,
-            .resource => |h| h,
-        };
-    }
-
-    pub fn deinit(self: *@This()) void {
-        switch (self.*) {
-            .resource => |h| _ = DestroyCursor(h),
-            else =>{}
-        }
-    }
-};
 
 arena: std.heap.ArenaAllocator,
 
@@ -323,44 +287,20 @@ pub fn setIcon(self: *@This(), new_icon: ico.Icon) !void {
     const allocator = self.arena.allocator();
 
     self.icon.deinit();
-
-    // Assign new icon value/memory
-    switch (new_icon) {
-        .symbol => |i| self.icon = .{ .system = windows_and_messaging.LoadIconW(null, iconToResource(i)) },
-        .resource => |c| {
-            const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c);
-            defer allocator.free(path);
-
-            self.icon = .{
-                .resource = @ptrCast(windows_and_messaging.LoadImageW(
-                    null,
-                    path.ptr,
-                    windows_and_messaging.IMAGE_ICON,
-                    0,
-                    0,
-                    windows_and_messaging.IMAGE_FLAGS{
-                        .DEFAULTSIZE = 1,
-                        .LOADFROMFILE = 1,
-                        .SHARED = 1,
-                        .LOADTRANSPARENT = 1,
-                    },
-                )),
-            };
-        },
-    }
+    self.icon = try Icon.init(allocator, new_icon);
 
     // Send message to window to now render new icon
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_SMALL,
-        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
+        @intCast(@as(usize, @intFromPtr(self.icon.handle()))),
     );
     _ = windows_and_messaging.SendMessageW(
         self.handle,
         windows_and_messaging.WM_SETICON,
         windows_and_messaging.ICON_BIG,
-        @intCast(@as(usize, @intFromPtr(self.icon.hIcon()))),
+        @intCast(@as(usize, @intFromPtr(self.icon.handle()))),
     );
 }
 
@@ -405,7 +345,7 @@ pub fn setCursor(self: *@This(), shape: ?csr.Cursor) !void {
     if (currHandle) |hwnd| {
         if (hwnd == self.handle) {
             // Get HCURSOR pointer from icon
-            _ = windows_and_messaging.SetCursor(self.cursor.hCursor());
+            _ = windows_and_messaging.SetCursor(self.cursor.handle());
         }
     }
 }

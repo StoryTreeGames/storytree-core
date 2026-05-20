@@ -7,6 +7,8 @@ const registry = win32.system.registry;
 const Color = @import("../root.zig").Color;
 
 pub const HDC = win32.graphics.gdi.HDC;
+pub const HICON = win32.ui.windows_and_messaging.HICON;
+pub const DestroyIcon = win32.ui.windows_and_messaging.DestroyIcon;
 pub const GetDC = win32.graphics.gdi.GetDC;
 pub const GetDeviceCaps = win32.graphics.gdi.GetDeviceCaps;
 
@@ -119,3 +121,4 @@ pub fn disableLegacyBlur(hwnd: HWND) void {
     };
     _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
 }
+

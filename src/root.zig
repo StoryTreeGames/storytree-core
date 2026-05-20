@@ -4,6 +4,7 @@ pub const cursor = @import("cursor.zig");
 pub const icon = @import("icon.zig");
 pub const input = @import("input.zig");
 pub const event = @import("event.zig");
+pub const menu = @import("menu.zig");
 
 pub fn Point(By: type) type {
     return struct {

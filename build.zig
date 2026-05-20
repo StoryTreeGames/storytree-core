@@ -118,6 +118,8 @@ pub fn build(b: *std.Build) !void {
         .{ .name = "helloworld", .path = EXAMPLES ++ "/helloworld.zig" },
         .{ .name = "raw_input", .path = EXAMPLES ++ "/raw_input.zig" },
         .{ .name = "dev", .path = EXAMPLES ++ "/dev.zig" },
+        .{ .name = "menu", .path = EXAMPLES ++ "/menu.zig" },
+        .{ .name = "taskbar", .path = EXAMPLES ++ "/taskbar.zig" },
     }) |example| {
         try ez.addExample(b, .{ 
             .name = example.name,

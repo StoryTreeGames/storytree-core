@@ -1,3 +1,4 @@
+const std = @import("std");
 const win32 = @import("windows").win32;
 
 const wam = win32.ui.windows_and_messaging;
@@ -8,6 +9,9 @@ const Rect = @import("../root.zig").Rect;
 const Point = @import("../root.zig").Point;
 const util = @import("util.zig");
 const input = @import("../input.zig");
+
+const HCURSOR = wam.HCURSOR;
+const DestroyCursor = wam.DestroyCursor;
 
 pub fn cursorToResource(cursor: Symbol) [*:0]align(1) const u16 {
     return switch (cursor) {
@@ -96,3 +100,52 @@ pub fn getKeyState(mouse_button: input.MouseButton) bool {
 
     return (@as(u16, @bitCast(kam.GetAsyncKeyState(value))) & 0x8000) != 0;
 }
+
+pub const Cursor = union(enum) {
+    system: ?HCURSOR,
+    resource: ?HCURSOR,
+
+    pub fn handle(self: *const @This()) ?HCURSOR {
+        return switch (self.*) {
+            .system => |h| h,
+            .resource => |h| h,
+        };
+    }
+
+    pub fn init(allocator: std.mem.Allocator, cur: @import("../cursor.zig").Cursor) !@This() {
+        if (cur) |cs| {
+            switch (cs) {
+                .symbol => |i| return .{ .system = wam.LoadCursorW(null, cursorToResource(i)) },
+                .resource => |c| {
+                    const path = try std.unicode.utf8ToUtf16LeAllocZ(allocator, c.path);
+                    defer allocator.free(path);
+
+                    return .{
+                        .resource = @ptrCast(wam.LoadImageW(
+                            null,
+                            path.ptr,
+                            wam.IMAGE_ICON,
+                            c.width,
+                            c.height,
+                            wam.IMAGE_FLAGS{
+                                .DEFAULTSIZE = 1,
+                                .LOADFROMFILE = 1,
+                                .SHARED = 1,
+                                .LOADTRANSPARENT = 1,
+                            },
+                        )),
+                    };
+                },
+            }
+        } else {
+            return .{ .system = null };
+        }
+    }
+
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .resource => |h| _ = DestroyCursor(h),
+            else =>{}
+        }
+    }
+};

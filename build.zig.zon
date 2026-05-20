@@ -4,6 +4,10 @@
     .minimum_zig_version = "0.15.1",
     .fingerprint = 0x9270341b276fba4a,
     .dependencies = .{
+        .example_zig = .{
+            .url = "git+https://github.com/Tired-Fox/example-zig.git#2d23412491f3201f33488046b9bcfe5b60641ba2",
+            .hash = "example_zig-0.0.1-yHg3BywMAABPi_FeTfCK2VZWiyE2FrzaHmN1ezgUcIms",
+        },
         .uuid = .{
             .url = "git+https://codeberg.org/r4gus/uuid-zig.git#3473041e2965ba23b975a4b767866fcf43e8041c",
             .hash = "uuid-0.5.0-oOieIYB-AAAon001Vv2FdX7zPLraCojPHKeWHg_9Obm7",
@@ -16,10 +20,6 @@
             .url = "git+https://github.com/Tired-Fox/windows-zig.git#498a12ea2df49e81032396a363f035065e1835b1",
             .hash = "windows-0.0.2-kXMVSjnSSgJe-5A-VUFKM2G3TpsElJ0Kb77OeECRXrGi",
             .lazy = true,
-        },
-        .example_zig = .{
-            .url = "git+https://github.com/Tired-Fox/example-zig.git#2d23412491f3201f33488046b9bcfe5b60641ba2",
-            .hash = "example_zig-0.0.1-yHg3BywMAABPi_FeTfCK2VZWiyE2FrzaHmN1ezgUcIms",
         },
     },
     .paths = .{
