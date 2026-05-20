@@ -26,11 +26,19 @@ const Theme = @import("../window.zig").Theme;
 const DARK_WINDOW_THEME = std.unicode.utf8ToUtf16LeStringLiteral("DarkMode_Explorer");
 const LIGHT_WINDOW_THEME = std.unicode.utf8ToUtf16LeStringLiteral("");
 
+const PreferredAppMode = enum(u32) {
+    Default,
+    AllowDark,
+    ForceDark,
+    ForceLight,
+    Max
+};
+
 pub fn tryTheme(hwnd: HWND, theme: ?Theme, refresh_title_bar: bool) Theme {
     const is_dark_mode = if (theme) |t| t == .dark else shouldUseDarkMode();
     if (
         win32.ui.controls.SetWindowTheme(hwnd, if (is_dark_mode) DARK_WINDOW_THEME else LIGHT_WINDOW_THEME, null) == 0
-        and SetWindowDarkMode(hwnd, is_dark_mode)
+        and setWindowDarkMode(hwnd, is_dark_mode)
     ) {
         if (refresh_title_bar) refreshTitlebarThemeColor(hwnd);
         return if (is_dark_mode) .dark else .light;
@@ -38,7 +46,7 @@ pub fn tryTheme(hwnd: HWND, theme: ?Theme, refresh_title_bar: bool) Theme {
 
     return .light;
 }
-fn SetWindowDarkMode(hwnd: HWND, is_dark_mode: bool) bool {
+fn setWindowDarkMode(hwnd: HWND, is_dark_mode: bool) bool {
     var bigbool = if (is_dark_mode) zig.TRUE else zig.FALSE;
     return dwm.DwmSetWindowAttribute(
         hwnd,
@@ -60,6 +68,22 @@ fn refreshTitlebarThemeColor(hwnd: HWND) void {
 
 fn shouldUseDarkMode() bool {
     return shouldAppsUseDarkMode() and !isHighContrast();
+}
+
+var SetPreferredAppMode: ?*const fn(mode: PreferredAppMode) callconv(.winapi) bool = null;
+pub fn setPreferredAppMode(mode: PreferredAppMode) bool {
+    if (SetPreferredAppMode) |callback| {
+        return callback(mode);
+    } else {
+        const dll_name = std.unicode.utf8ToUtf16LeStringLiteral("uxtheme.dll");
+        const uxtheme = library_loader.LoadLibraryExW(dll_name, null, .{}) orelse return false;
+        defer _ = library_loader.FreeLibrary(uxtheme);
+
+        const func_ptr = library_loader.GetProcAddress(uxtheme, @ptrFromInt(135)) orelse return false;
+        SetPreferredAppMode = @ptrCast(func_ptr);
+
+        return SetPreferredAppMode.?(mode);
+    }
 }
 
 var ShouldAppsUseDarkMode: ?*const fn() callconv(.winapi) bool = null;

@@ -148,6 +148,8 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !*@This() {
         .token = try Gamepad.addGamepadRemoved(gamepad_removed_handler),
     };
 
+    _ = dark_mode.setPreferredAppMode(.AllowDark);
+
     return self;
 }
 
