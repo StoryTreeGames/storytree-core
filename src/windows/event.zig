@@ -34,7 +34,7 @@ const HID_USAGE_GENERIC_KEYBOARD = win32.devices.human_interface_device.HID_USAG
 const HID_USAGE_PAGE_GENERIC = win32.devices.human_interface_device.HID_USAGE_PAGE_GENERIC;
 const MOUSE_MOVE_ABSOLUTE = win32.devices.human_interface_device.MOUSE_MOVE_ABSOLUTE;
 
-const dark_mode = @import("dark_mode.zig");
+const thm = @import("theme.zig");
 const event = @import("../event.zig");
 const ButtonState = @import("../event.zig").ButtonState;
 const input = @import("input.zig");
@@ -148,7 +148,7 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !*@This() {
         .token = try Gamepad.addGamepadRemoved(gamepad_removed_handler),
     };
 
-    _ = dark_mode.setPreferredAppMode(.AllowDark);
+    _ = thm.setPreferredAppMode(.AllowDark);
 
     return self;
 }
@@ -465,20 +465,10 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
 
     switch (message) {
         // Request to close the window
-        windows_and_messaging.WM_ERASEBKGND => return win.acrylic,
-        windows_and_messaging.WM_PAINT => {
-            var ps: graphics.gdi.PAINTSTRUCT = undefined;
-            _ = graphics.gdi.BeginPaint(hwnd, &ps);
-            _ = graphics.gdi.EndPaint(hwnd, &ps);
-            return true;
-        },
         windows_and_messaging.WM_NCCALCSIZE => {
             if (wparam == 1)
             {
-                // NCCALCSIZE_PARAMS* pncsp = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
-                // Adjust pncsp->rgrc[0] to fit your needs, e.g., leaving space for menu
-                // Or return 0 to make the entire window client area (and handle menu drawing manually)
-                return false; 
+                return false;
             }
         },
         windows_and_messaging.WM_CLOSE => {
@@ -905,7 +895,7 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
                         },
                     },
                 } });
-                return true;
+                // return true;
             }
         },
         windows_and_messaging.WM_SIZE => {
@@ -925,19 +915,12 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
                     },
                 },
             } });
-
-            if (win.acrylic) {
-                util.applyLegacyBlur(hwnd);
-                _ = graphics.gdi.InvalidateRect(hwnd, null, zig.FALSE);
-            }
-
-            return true;
         },
         windows_and_messaging.WM_SETTINGCHANGE => {
             const theme = win.preferred_theme;
             // If preferred window theme is system theme
             if (theme == null) {
-                const new_theme = dark_mode.tryTheme(hwnd, theme, false);
+                const new_theme = thm.tryTheme(hwnd, theme, false);
                 if (win.theme != new_theme) {
                     win.theme = new_theme;
                     try queue.append(.{
@@ -947,12 +930,6 @@ fn parseEvent(ev: *@This(), win: *Window, args: EventArgs, queue: *EventQueue) !
                         },
                     });
                 }
-            }
-        },
-        windows_and_messaging.WM_DWMCOMPOSITIONCHANGED => {
-            if (win.acrylic) {
-                util.applyLegacyBlur(hwnd);
-                _ = graphics.gdi.InvalidateRect(hwnd, null, zig.FALSE);
             }
         },
         else => {},

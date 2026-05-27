@@ -28,7 +28,8 @@ const csr = @import("../cursor.zig");
 const ico = @import("../icon.zig");
 const Rect = @import("../root.zig").Rect;
 const Win = @import("../window.zig");
-const dark_mode = @import("dark_mode.zig");
+const Transparency = @import("../window.zig").Transparency;
+const thm = @import("theme.zig");
 const util = @import("util.zig");
 const EventLoop = @import("../event.zig").EventLoop;
 const Cursor = @import("cursor.zig").Cursor;
@@ -49,7 +50,7 @@ cursor: Cursor = .{ .system = null },
 
 theme: Win.Theme = .light,
 preferred_theme: ?Win.Theme = null,
-acrylic: bool = false,
+transparency: ?Transparency = null,
 
 fullscreen_state: ?struct {
     client: util.RECT,
@@ -88,7 +89,7 @@ pub fn init(
 
         .hIcon = null,
         .hCursor = null,
-        .hbrBackground = gdi.GetStockObject(if (options.acrylic) gdi.HOLLOW_BRUSH else gdi.WHITE_BRUSH),
+        .hbrBackground = gdi.GetStockObject(if (options.transparency == .blur) gdi.HOLLOW_BRUSH else gdi.WHITE_BRUSH),
         .lpszMenuName = null,
 
         .hInstance = win.instance,
@@ -114,7 +115,10 @@ pub fn init(
     };
 
     win.handle = windows_and_messaging.CreateWindowExW(
-        windows_and_messaging.WINDOW_EX_STYLE{ .COMPOSITED = 1 },
+        windows_and_messaging.WINDOW_EX_STYLE{
+            .COMPOSITED = @intFromBool(options.transparency == null),
+            .NOREDIRECTIONBITMAP = @intFromBool(options.transparency != null),
+        },
         win.class.ptr,
         win.title.ptr,
         window_style, // style
@@ -131,21 +135,12 @@ pub fn init(
     win.preferred_theme = options.theme;
     win.setTheme(options.theme);
 
-    if (options.acrylic) {
-        win.acrylic = true;
-
-        const DWM_SYSTEMBACKDROP_TYPE = enum (i32) {
-            AUTO = 0,
-            NONE = 1,
-            MAINWINDOW = 2,      // Mica
-            TRANSIENTWINDOW = 3, // Acrylic
-            TABBEDWINDOW = 4     // Mica Alt
-        };
-        var backdrop = DWM_SYSTEMBACKDROP_TYPE.TRANSIENTWINDOW;
-        _ = dwm.DwmSetWindowAttribute(win.handle, @enumFromInt(38), &backdrop, @sizeOf(DWM_SYSTEMBACKDROP_TYPE));
-
-        util.applyLegacyBlur(win.handle);
-        _ = gdi.InvalidateRect(win.handle, null, zig.FALSE);
+    if (options.transparency) |transparency| {
+        win.transparency = transparency;
+        switch (transparency) {
+            .blur => try thm.applyBlur(win.handle),
+            .vibrant => try thm.applyMica(win.handle),
+        }
     }
 
     _ = windows_and_messaging.ShowWindow(win.handle, switch (options.show) {
@@ -440,7 +435,7 @@ pub fn getClientRect(self: *@This()) Rect(u32) {
 
 pub fn setTheme(self: *@This(), theme: ?Win.Theme) void {
     if (theme == self.theme) return;
-    self.theme = dark_mode.tryTheme(self.handle, theme, false);
+    self.theme = thm.tryTheme(self.handle, theme, false);
 }
 
 pub fn getTheme(self: *@This()) Win.Theme {
@@ -476,13 +471,6 @@ fn wndProc(
             // Cast from anyopaque to an expected EventLoop
             // this includes casting the pointer alignment
             const event_loop: *EventLoop = @ptrCast(@alignCast(create_params));
-
-            if (event_loop.windows.get(@intFromPtr(hwnd))) |win| {
-                if (win.acrylic) {
-                    util.applyLegacyBlur(hwnd);
-                    _ = gdi.InvalidateRect(hwnd, null, zig.FALSE);
-                }
-            }
 
             // Cast pointer to isize for setting data
             const long_ptr: usize = @intFromPtr(event_loop);

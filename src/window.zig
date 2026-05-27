@@ -35,6 +35,15 @@ pub const Handles = struct {
 
 pub const Visibility = enum { maximize, minimize, restore, fullscreen, hidden };
 
+pub const Transparency = enum {
+    /// Windows: acrylic
+    /// MacOS: Vibrancy
+    blur,
+    /// Windows: Mica
+    /// MacOS: Vibrancy
+    vibrant
+};
+
 pub const Options = struct {
     title: []const u8 = "",
     width: ?u32 = null,
@@ -47,7 +56,7 @@ pub const Options = struct {
     theme: ?Theme = null,
 
     // Currently only supported on windows. All other platforms are NOOP
-    acrylic: bool = false,
+    transparency: ?Transparency = null,
 
     /// Has no affect on linux.
     ///

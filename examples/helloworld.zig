@@ -25,6 +25,7 @@ pub fn main(init: std.process.Init) !void {
         .height = 600,
         .icon = .custom("examples\\assets\\icon.ico"), // Doesn't work yet in linux
         .cursor = .Progress,
+        .transparency = .blur,
     });
     window.show();
 

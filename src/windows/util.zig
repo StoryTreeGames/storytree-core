@@ -12,6 +12,8 @@ pub const DestroyIcon = win32.ui.windows_and_messaging.DestroyIcon;
 pub const GetDC = win32.graphics.gdi.GetDC;
 pub const GetDeviceCaps = win32.graphics.gdi.GetDeviceCaps;
 
+const library_loader = win32.system.library_loader;
+
 pub const HWND = win32.foundation.HWND;
 pub const HINSTANCE = win32.foundation.HINSTANCE;
 pub const RECT = win32.foundation.RECT;
@@ -92,33 +94,64 @@ pub fn createUIDClass(io: std.Io, allocator: std.mem.Allocator) ![:0]u16 {
     return try utf8ToUtf16Alloc(allocator, temp);
 }
 
-pub fn applyLegacyBlur(hwnd: HWND) void {
-    var rc: win32.foundation.RECT = undefined;
-    _ = win32.ui.windows_and_messaging.GetClientRect(hwnd, &rc);
+const RTL_OSVERSIONINFOEXW = extern struct {
+    dwOSVersionInfoSize: u32,
+    dwMajorVersion: u32,
+    dwMinorVersion: u32,
+    dwBuildNumber: u32,
+    dwPlatformId: u32,
+    szCSDVersion: [128]u16,
+    wServicePackMajor: u16,
+    wServicePackMinor: u16,
+    wSuiteMask: u16,
+    wProductType: u8,
+    wReserved: u8,
+};
+extern "ntdll" fn RtlGetVersion(lpVersionInformation: *RTL_OSVERSIONINFOEXW) callconv(.winapi) i32;
 
-    const menuH = if (win32.ui.windows_and_messaging.GetMenu(hwnd)) |_|
-        win32.ui.windows_and_messaging.GetSystemMetrics(win32.ui.windows_and_messaging.SM_CYMENU)
-    else
-        0;
+pub const OsVersion = struct {
+    major: u32,
+    minor: u32,
+    build: u32,
+    pack: u16,
+    product: u8,
+};
+var WINDOWS_VERSION: ?RTL_OSVERSIONINFOEXW = null;
+pub fn getWindowsVersion() !OsVersion {
+    var version: RTL_OSVERSIONINFOEXW = undefined;
 
-    const rgn = win32.graphics.gdi.CreateRectRgn(rc.left, rc.top + menuH, rc.right, rc.bottom + menuH);
+    if (RtlGetVersion(&version) != 0) {
+        return error.WindowsVersionRetrievalFailure;
+    }
 
-    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
-        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE | win32.graphics.dwm.DWM_BB_BLURREGION,
-        .fEnable = win32.zig.TRUE,
-        .hRgnBlur = rgn,
-        .fTransitionOnMaximized = win32.zig.FALSE
+    return .{
+        .major = version.dwMajorVersion,
+        .minor = version.dwMinorVersion,
+        .pack = version.wServicePackMajor,
+        .build = version.dwBuildNumber,
+        .product = version.wProductType,
     };
-    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
-    _ = win32.graphics.gdi.DeleteObject(rgn);
-}
-pub fn disableLegacyBlur(hwnd: HWND) void {
-    var bb = win32.graphics.dwm.DWM_BLURBEHIND {
-        .dwFlags = win32.graphics.dwm.DWM_BB_ENABLE,
-        .fEnable = win32.zig.FALSE,
-        .hRgnBlur = null,
-        .fTransitionOnMaximized = win32.zig.FALSE
-    };
-    _ = win32.graphics.dwm.DwmEnableBlurBehindWindow(hwnd, &bb);
 }
 
+pub fn isSWCASupported() bool {
+    const v = getWindowsVersion() catch return false;
+    return v.build >= 17763;
+}
+
+pub fn isBackdroptypeSupported() bool {
+    const v = getWindowsVersion() catch return false;
+    return v.build >= 22523;
+}
+
+pub fn isUndocumentedMicaSupported() bool {
+    const v = getWindowsVersion() catch return false;
+    return v.build >= 22000;
+}
+
+pub extern "dwmapi" fn DwmSetWindowAttribute(
+    hwnd: ?HWND,
+    dwAttribute: i32,
+    // TODO: what to do with BytesParamIndex 3?
+    pvAttribute: ?*const anyopaque,
+    cbAttribute: u32,
+) callconv(.winapi) win32.foundation.HRESULT;

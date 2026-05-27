@@ -156,6 +156,7 @@ pub fn main(init: std.process.Init) !void {
         // System tray requires a window. However we can hide it so that only the
         // system tray icon is visible.
         .show = .restore,
+        .transparency = .blur,
     });
 
     const window2 = try event_loop.createWindow(.{
@@ -164,7 +165,7 @@ pub fn main(init: std.process.Init) !void {
         // System tray requires a window. However we can hide it so that only the
         // system tray icon is visible.
         .show = .restore,
-        .acrylic = true
+        .transparency = .vibrant,
     });
 
     const shared_window_menu = try menu.Menu.init(gpa, .{
