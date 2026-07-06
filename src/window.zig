@@ -17,6 +17,7 @@ pub const Theme = enum {
     pub fn isLight(self: *const @This()) bool {
         return self.* == .light;
     }
+
     pub fn isDark(self: *const @This()) bool {
         return self.* == .dark;
     }
@@ -74,111 +75,3 @@ pub const Window = switch (@import("builtin").target.os.tag) {
     .linux => @import("linux/wayland/window.zig"),
     else => @compileError("unsupported platform"),
 };
-
-pub fn id(self: *const @This()) usize {
-    return self.impl.id();
-}
-
-/// Returns the pointers to the parent and
-/// the target
-///
-/// # Parent
-/// - Windows: HINSTANCE
-/// - Linux: Display
-///
-/// # Target
-/// - Windows: HWND
-/// - Linux: Surface
-pub fn handles(self: *const @This()) Handles {
-    return self.impl.handles();
-}
-
-pub fn visibility(self: *const @This()) Visibility {
-    return self.impl.visibility();
-}
-
-/// Show the window
-pub fn show(self: *const @This()) void {
-    self.impl.show();
-}
-
-/// Hide the window
-pub fn hide(self: *const @This()) void {
-    self.impl.hide();
-}
-
-/// Minimize the window
-pub fn minimize(self: *const @This()) void {
-    self.impl.minimize();
-}
-
-/// Maximize the window
-pub fn maximize(self: *const @This()) void {
-    self.impl.maximize();
-}
-
-/// Restore the window to its default windowed state
-pub fn restore(self: *const @This()) void {
-    self.impl.restore();
-}
-
-/// Get the windows configured theme
-pub fn getTheme(self: *@This()) Theme {
-    return self.impl.getTheme();
-}
-
-/// Get the windows current theme
-pub fn getCurrentTheme(self: *@This()) Theme {
-    return self.impl.getCurrentTheme();
-}
-
-/// Set or Unset the current window to be full screen.
-///
-/// + **true**: It will take up the entire screen of the current monitor where
-///   the window is located if it is fullscreen.
-/// + **false**: The window's styles, size, and position are restored and if
-///   the window was maximized before fullscreen, it will go back to being
-///   maximized.
-pub fn setFullScreen(self: *@This(), state: bool) void {
-    try self.impl.setFullScreen(state);
-}
-
-/// Set window title
-pub fn setTitle(self: *@This(), title: []const u8) !void {
-    try self.impl.setTitle(self.arena.allocator(), title);
-}
-
-/// Set window icon
-pub fn setIcon(self: *@This(), new_icon: Icon) !void {
-    try self.impl.setIcon(self.arena.allocator(), new_icon);
-}
-
-/// Set window cursor
-pub fn setCursor(self: *@This(), new_cursor: Cursor) !void {
-    try self.impl.setCursor(self.arena.allocator(), new_cursor);
-}
-
-/// Set the cursors position relative to the window
-pub fn setCursorPos(self: *@This(), x: u32, y: u32) void {
-    self.impl.setCursorPos(@intCast(x), @intCast(y));
-}
-
-/// Get whether the mouse is captured by the current window
-pub fn getCapture(self: *@This()) bool {
-    self.impl.getCapture();
-}
-
-/// Get the current area that is used for rendering
-pub fn getClientRect(self: *@This()) Rect(u32) {
-    return self.impl.getClientRect();
-}
-
-/// Set the mouse to be captured by the window, or release it from the window
-pub fn setCapture(self: *@This(), state: bool) void {
-    self.impl.setCapture(state);
-}
-
-/// Set the window's configured theme
-pub fn setTheme(self: *@This(), theme: Theme) void {
-    self.impl.setTheme(theme);
-}

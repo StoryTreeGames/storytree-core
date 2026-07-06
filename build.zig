@@ -14,18 +14,6 @@ pub fn build(b: *std.Build) !void {
     var deps: std.ArrayList(std.Build.Module.Import) = .empty;
     defer deps.deinit(b.allocator);
 
-    const translate_wayland_cursor = b.addTranslateC(.{
-        .root_source_file = b.path("src/cursor.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const translate_xkbcommon = b.addTranslateC(.{
-        .root_source_file = b.path("src/keyboard.h"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     const module = b.addModule(NAME, .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -55,6 +43,18 @@ pub fn build(b: *std.Build) !void {
             }
         },
         .linux => {
+            const translate_wayland_cursor = b.addTranslateC(.{
+                .root_source_file = b.path("lib/cursor.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+
+            const translate_xkbcommon = b.addTranslateC(.{
+                .root_source_file = b.path("lib/keyboard.h"),
+                .target = target,
+                .optimize = optimize,
+            });
+
             const Scanner = @import("wayland").Scanner;
 
             module.linkSystemLibrary("wayland-client", .{});

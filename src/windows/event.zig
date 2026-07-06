@@ -135,7 +135,6 @@ pub fn init(io: std.Io, allocator: std.mem.Allocator) !*@This() {
     self.windows = .empty;
 
     self.msg_target = try createMsgTargetWindow(self);
-    try registerRawInputDevices(self.msg_target, .when_focused);
 
     const gamepad_added_handler = try EventHandler(Gamepad).initWithState(handleGamepadAdded, self);
     self.gamepad_added_handler = .{
@@ -219,6 +218,8 @@ pub fn deinit(self: *@This()) void {
     for (self.windows.values()) |window| {
         window.deinit();
     }
+
+    self.disableRawMouseInput();
 
     self.gamepad_added_handler.deinit();
     self.gamepad_removed_handler.deinit();
@@ -370,7 +371,7 @@ pub fn wait(_: *@This()) !void {
 /// WARNING: This can only be enabled for a single window at a time for the parent process. If there
 /// is a window that already has raw mouse input then calling this method again will fail to apply
 /// raw mouse input to the new window.
-fn registerRawInputDevices(hwnd: ?HWND, filter: enum { never, always, when_focused  }) !void {
+pub fn registerRawInputDevices(self: *const @This(), filter: enum { never, always, when_focused  }) !void {
     const flags = RAWINPUTDEVICE_FLAGS{
         .DEVNOTIFY = @intFromBool(filter != .never),
         .INPUTSINK = @intFromBool(filter == .always),
@@ -386,7 +387,7 @@ fn registerRawInputDevices(hwnd: ?HWND, filter: enum { never, always, when_focus
             // "Mouse" "HID_USAGE_GENERIC_MOUSE"
             .usUsage = HID_USAGE_GENERIC_MOUSE,
             .dwFlags = flags,
-            .hwndTarget = hwnd,
+            .hwndTarget = self.msg_target,
         },
         .{
             .usUsagePage = HID_USAGE_PAGE_GENERIC,
@@ -394,7 +395,7 @@ fn registerRawInputDevices(hwnd: ?HWND, filter: enum { never, always, when_focus
             // "Keyboard" "HID_USAGE_GENERIC_KEYBOARD"
             .usUsage = HID_USAGE_GENERIC_KEYBOARD,
             .dwFlags = flags,
-            .hwndTarget = hwnd,
+            .hwndTarget = self.msg_target,
         },
     };
 
@@ -405,6 +406,7 @@ fn registerRawInputDevices(hwnd: ?HWND, filter: enum { never, always, when_focus
     // recieving raw input events.
     const result = RegisterRawInputDevices((&devices).ptr, @intCast(devices.len), @sizeOf(RAWINPUTDEVICE));
     if (result != 1) return error.RawInputAlreadyEnabled;
+    self.raw_input = true;
 }
 
 /// Disables raw mouse input for the window that currently has the raw mouse input focus

@@ -26,15 +26,16 @@ const Shell_NotifyIconW = shell.Shell_NotifyIconW;
 
 const csr = @import("../cursor.zig");
 const ico = @import("../icon.zig");
-const Rect = @import("../root.zig").Rect;
-const Win = @import("../window.zig");
-const Transparency = @import("../window.zig").Transparency;
 const thm = @import("theme.zig");
 const util = @import("util.zig");
+const Rect = @import("../root.zig").Rect;
+const Color = @import("../root.zig").Color;
+const Win = @import("../window.zig");
+const Transparency = @import("../window.zig").Transparency;
 const EventLoop = @import("../event.zig").EventLoop;
 const Cursor = @import("cursor.zig").Cursor;
-const cursorToResource = @import("cursor.zig").cursorToResource;
 const Icon = @import("icon.zig").Icon;
+const cursorToResource = @import("cursor.zig").cursorToResource;
 const iconToResource = @import("icon.zig").iconToResource;
 
 arena: std.heap.ArenaAllocator,
